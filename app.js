@@ -73,6 +73,14 @@
     return close;
   }
 
+  /** A small "Copied!"-style badge that pops up on a button, then fades away. */
+  function badge(btn, text, ms = 1800) {
+    btn.querySelector(".pop-badge")?.remove();
+    const el = h("span", { class: "pop-badge", role: "status", "aria-live": "polite" }, iconEl("check"), text);
+    btn.append(el);
+    setTimeout(() => { el.classList.add("out"); setTimeout(() => el.remove(), 300); }, ms);
+  }
+
   function flash(btn, text, icon = "check", ms = 2000) {
     const label = btn.querySelector(".label");
     const ico = btn.querySelector(".i");
@@ -807,9 +815,12 @@
     BX.doc.mount($("#paper"), onDocChange);
 
     $("#copyChatBtn").onclick = async (e) => {
+      const btn = e.currentTarget;   // read before awaiting: currentTarget is null afterwards
       const m = B.normalize(S.doc.model);
       const ok = await copyToClipboard(B.toChatText(m), B.toChatHtml(m));
-      ok ? flash(e.currentTarget, "Copied — paste it in the chat") : toast("Couldn't copy. Select the preview text and copy it manually.", { type: "error" });
+      if (!ok) return toast("Couldn't copy. Select the preview text and copy it manually.", { type: "error" });
+      flash(btn, "Copied — paste it in the chat");
+      badge(btn, "Copied!");
     };
 
     $("#pdfBtn").onclick = async (e) => {

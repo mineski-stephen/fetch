@@ -162,6 +162,20 @@ main { max-width: 1200px; margin: 0 auto; padding: 0 var(--gutter) 96px; outline
 .btn.is-busy .i svg { display: none; }
 .btn.is-busy .i::after { content: ""; width: 16px; height: 16px; margin: 1px; border-radius: 50%; border: 2.5px solid currentColor; border-right-color: transparent; animation: spin .7s linear infinite; }
 .label-short { display: none; }
+#copyChatBtn { position: relative; overflow: visible; }
+.pop-badge {
+  position: absolute; top: -12px; right: 10px; z-index: 5;
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 10px 3px 7px; border-radius: 999px;
+  background: var(--ok); color: #fff; font-size: 12px; font-weight: 800; letter-spacing: .01em;
+  box-shadow: 0 6px 16px -6px rgba(23, 115, 74, .7);
+  pointer-events: none; animation: badgeIn .45s var(--spring) both;
+}
+@media (prefers-color-scheme: dark) { .pop-badge { color: #0B2A1B; } }
+.pop-badge .i { width: 13px; height: 13px; }
+.pop-badge.out { animation: badgeOut .3s ease-in both; }
+@keyframes badgeIn { from { opacity: 0; transform: translateY(8px) scale(.6); } to { opacity: 1; transform: none; } }
+@keyframes badgeOut { to { opacity: 0; transform: translateY(-6px) scale(.9); } }
 .linkish { border: 0; background: none; padding: 0; color: var(--accent-text); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 2px; text-decoration-color: rgba(255, 200, 0, .7); }
 .linkish:hover { text-decoration-color: var(--brand); }
 

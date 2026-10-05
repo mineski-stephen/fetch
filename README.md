@@ -103,7 +103,6 @@ project-brief/                     ← the repository root = the website root
 │   ├── fetch-logo.svg             Logo source (single colour, no dash lines)
 │   ├── fetch-icon.svg             App icon / favicon, built from fetch-logo.svg
 │   └── fetch-icon-32/180/512.png  PNG fallbacks (browser tab, iPhone home screen, app icon)
-├── .github/workflows/pages.yml    Publishes ONLY the files above to GitHub Pages on every push to main
 ├── README.md                      ← you are here
 ├── project-brief-template.md      The summary template the document follows
 ├── render/
@@ -288,16 +287,18 @@ static files (no build step, no server code) linked with relative paths, so
 they work at any address, including a GitHub Pages sub-path like
 `https://<user>.github.io/<repo>/`.
 
-1. Push the project, including the `.github` folder, to GitHub.
-2. Repo **Settings → Pages → Build and deployment → Source: GitHub Actions**.
-3. The next push to `main` publishes the site. You can also run it by hand under
-   **Actions → Deploy Fetch to GitHub Pages → Run workflow**. The URL appears in
-   the workflow run and in Settings → Pages.
+To publish manually:
+1. Push the project to a GitHub repository.
+2. Repo **Settings → Pages → Build and deployment → Source: Deploy from a
+   branch**, then pick `main` and `/ (root)`, and **Save**.
+3. After a minute the site is live at the URL shown in Settings → Pages.
+   Every later push to `main` republishes it.
 
-The workflow (`.github/workflows/pages.yml`) copies **only the website files**
-into the published site. `render/`, `tools/` and the docs stay in the repository
-but are not served as web pages. Prefer it over *Deploy from a branch*, which
-would publish every file in the repo.
+Branch publishing serves **every file in the repository**, including
+`render/`, `tools/`, this README and `project-brief-template.md`. None of them
+contain secrets (the Gemini key lives only in Render's environment), but keep
+it that way: never commit API keys or `.env` files to this repository. The
+`.nojekyll` file makes GitHub serve the files as-is.
 
 Other static hosts (Netlify, Cloudflare Pages, Render Static Site) work the
 same way: publish the project root, no build command.
