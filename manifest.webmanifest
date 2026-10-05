@@ -1,0 +1,14 @@
+{
+  "name": "Fetch — Project Brief Extractor",
+  "short_name": "Fetch",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#F7F6F1",
+  "theme_color": "#FFC800",
+  "icons": [
+    { "src": "img/fetch-icon-180.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "img/fetch-icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "img/fetch-icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

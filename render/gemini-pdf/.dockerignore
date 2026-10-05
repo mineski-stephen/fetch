@@ -1,0 +1,12 @@
+# Keep the image to just the service — docs, tests and cruft don't belong in it.
+README.md
+render.yaml
+Dockerfile
+.dockerignore
+tests/
+__pycache__/
+*.pyc
+.env
+.git
+.gitignore
+.DS_Store
