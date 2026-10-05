@@ -28,6 +28,9 @@
   })();
 
   let root = null, model = null, onChange = () => {}, pop = null;
+  const GRIP = '<svg viewBox="0 0 10 16" width="10" height="16"><g fill="currentColor"><circle cx="2.5" cy="3" r="1.5"/>'
+    + '<circle cx="7.5" cy="3" r="1.5"/><circle cx="2.5" cy="8" r="1.5"/><circle cx="7.5" cy="8" r="1.5"/>'
+    + '<circle cx="2.5" cy="13" r="1.5"/><circle cx="7.5" cy="13" r="1.5"/></g></svg>';
 
   // ---- tiny DOM helpers ---------------------------------------------------
   function h(tag, attrs, ...kids) {
@@ -87,7 +90,10 @@
           h("span", { class: "pair-sep", "aria-hidden": "true" }, opts.sep || ": "),
           ed(`${name}.${i}.${fields[1]}`, { cls: "pair-b", placeholder: empty ? ph : opts.bPlaceholder || "Details" })]
         : [ed(`${name}.${i}`, { placeholder: ph, label: opts.label })];
-      list.append(h("li", { "data-index": i }, content, !empty && h("button", {
+      list.append(h("li", { "data-index": i }, rows.length > 1 && h("button", {
+        type: "button", class: "item-drag", contenteditable: "false", tabindex: "0",
+        "aria-label": "Drag to reorder, or use the arrow keys", title: "Drag to reorder",
+      }, h("span", { "aria-hidden": "true", html: GRIP })), content, !empty && h("button", {
         type: "button", class: "item-del", "data-del": `${name}.${i}`, contenteditable: "false",
         "aria-label": "Remove this point", title: "Remove",
       }, "×")));
@@ -305,6 +311,75 @@
     }
   }
 
+  // ---- drag to reorder (pointer events: mouse, pen and touch) -----------------
+  function moveItem(name, from, to, focusHandle = false) {
+    if (from === to) return;
+    const arr = model[name];
+    arr.splice(to, 0, arr.splice(from, 1)[0]);
+    render(model);
+    changed();
+    const li = root.querySelector(`[data-list="${name}"] > li[data-index="${to}"]`);
+    li?.classList.add("just-moved");
+    setTimeout(() => li?.classList.remove("just-moved"), 700);
+    if (focusHandle) li?.querySelector(".item-drag")?.focus();
+  }
+
+  function onDragStart(e) {
+    const handle = e.target.closest(".item-drag");
+    if (!handle || e.button > 0) return;
+    e.preventDefault();
+    closePopover();
+    document.activeElement?.blur?.();
+    const li = handle.closest("li"), list = li.parentElement, name = list.dataset.list;
+    const items = [...list.children], from = items.indexOf(li);
+    const gap = li.getBoundingClientRect().height + parseFloat(getComputedStyle(li).marginTop || 0);
+    const mids = items.map((el) => { const r = el.getBoundingClientRect(); return r.top + window.scrollY + r.height / 2; });
+    const startY = e.pageY;
+    let to = from, raf = 0, lastY = e.clientY;
+    try { handle.setPointerCapture(e.pointerId); } catch (_) { /* moves still arrive while over the handle */ }
+    li.classList.add("is-dragging");
+    list.classList.add("is-sorting");
+
+    const place = (pageY) => {
+      li.style.transform = `translateY(${pageY - startY}px)`;
+      to = mids.filter((m, k) => k !== from && m < pageY).length;
+      items.forEach((el, k) => {
+        if (el === li) return;
+        const shift = from < to && k > from && k <= to ? -gap : from > to && k >= to && k < from ? gap : 0;
+        el.style.transform = shift ? `translateY(${shift}px)` : "";
+      });
+    };
+    const autoScroll = () => {   // keep dragging past the edge of the screen
+      const edge = 70, v = lastY < edge ? -(edge - lastY) / 4 : lastY > innerHeight - edge ? (lastY - innerHeight + edge) / 4 : 0;
+      if (v) { window.scrollBy(0, v); place(lastY + window.scrollY); }
+      raf = requestAnimationFrame(autoScroll);
+    };
+    const onMove = (ev) => { lastY = ev.clientY; place(ev.pageY); };
+    const onUp = () => {
+      cancelAnimationFrame(raf);
+      handle.removeEventListener("pointermove", onMove);
+      handle.removeEventListener("pointerup", onUp);
+      handle.removeEventListener("pointercancel", onUp);
+      items.forEach((el) => { el.style.transform = ""; });
+      li.classList.remove("is-dragging");
+      list.classList.remove("is-sorting");
+      moveItem(name, from, to);
+    };
+    handle.addEventListener("pointermove", onMove);
+    handle.addEventListener("pointerup", onUp);
+    handle.addEventListener("pointercancel", onUp);
+    raf = requestAnimationFrame(autoScroll);
+  }
+
+  function onHandleKey(e) {
+    const handle = e.target.closest?.(".item-drag");
+    if (!handle || !["ArrowUp", "ArrowDown"].includes(e.key)) return;
+    e.preventDefault();
+    const li = handle.closest("li"), name = li.parentElement.dataset.list, from = +li.dataset.index;
+    const to = Math.max(0, Math.min(model[name].length - 1, from + (e.key === "ArrowUp" ? -1 : 1)));
+    moveItem(name, from, to, true);
+  }
+
   function onClick(e) {
     const btn = e.target.closest("button");
     if (!btn || !root.contains(btn)) return;
@@ -412,6 +487,8 @@
     root.addEventListener("keydown", onKeydown);
     root.addEventListener("paste", onPaste);
     root.addEventListener("click", onClick);
+    root.addEventListener("pointerdown", onDragStart);
+    root.addEventListener("keydown", onHandleKey);
   }
 
   BX.doc = { mount, render, close: closePopover, h };

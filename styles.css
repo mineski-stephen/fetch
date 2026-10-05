@@ -499,6 +499,25 @@ body.dragging .dz-drop { opacity: 1; }
   opacity: 0; transition: opacity .15s, background .15s, color .15s;
 }
 .doc-list li:hover > .item-del, .doc-list li:focus-within > .item-del { opacity: 1; }
+.item-drag {
+  position: absolute; left: -44px; top: 1px; width: 22px; height: 24px;
+  display: grid; place-items: center; padding: 0; border: 0; border-radius: 6px;
+  background: transparent; color: var(--p-muted); cursor: grab; touch-action: none;
+  opacity: 0; transition: opacity .15s, background .15s, color .15s;
+}
+.kd .item-drag { left: -38px; }
+.doc-list li:hover > .item-drag, .item-drag:focus-visible, .is-sorting .is-dragging > .item-drag { opacity: 1; }
+.item-drag:hover { background: #F1F0EA; color: var(--p-ink); }
+.item-drag:active { cursor: grabbing; }
+.is-sorting li { transition: transform .18s var(--ease); }
+.is-sorting li.is-dragging {
+  transition: none; position: relative; z-index: 2; border-radius: 8px;
+  background: #FFFBEA; box-shadow: 0 10px 24px -10px rgba(22, 21, 15, .35), 0 0 0 1px #F2D27A;
+}
+.is-sorting, .is-sorting * { user-select: none; cursor: grabbing; }
+.doc-list li.just-moved { animation: moved .7s var(--ease); }
+@keyframes moved { from { background: #FFF1B8; } to { background: transparent; } }
+@media (hover: none) { .doc-list li > .item-drag { opacity: .45; } }
 .item-del:hover { background: #FDECEA; color: #B42318; }
 .item-add {
   margin: 2px 0 0 14px; padding: 3px 8px; border: 0; border-radius: 8px;
@@ -802,7 +821,7 @@ div.ed { display: block; }
 /* ---- print: just the paper ----------------------------------------------- */
 @media print {
   body { background: #fff; }
-  .bg, .topbar, .result-top, .warn, .edit-hint, .side, .toasts, .item-add, .item-del, .due-rel, .badge-suggest { display: none !important; }
+  .bg, .topbar, .result-top, .warn, .edit-hint, .side, .toasts, .item-add, .item-del, .item-drag, .due-rel, .badge-suggest { display: none !important; }
   main { padding: 0; max-width: none; }
   .result-grid { display: block; }
   .paper { box-shadow: none; padding: 0; animation: none; }
