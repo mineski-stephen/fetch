@@ -619,18 +619,23 @@
     openDoc({
       mode: "draft", model: d.model, original: d.original, meta: d.meta, sources: d.sources,
       nextSteps: d.nextSteps || [],
+      requirement: d.requirement ?? d.model.requirement?.type ?? "",
+      vat: d.vat ?? d.model.vat?.applies ?? "",
       attachments: S.draftFiles.map((f) => ({ name: f.name, size: f.size, file: f })),
       filesLost: !S.draftFiles.length && (d.sources || []).length > 0,   // page was reloaded since extraction
     });
   }
 
   // ---- Next steps & attachments: saved to the Lark row, never part of the document ----
-  const extrasKey = (doc) => JSON.stringify([[...doc.nextSteps].sort(),
+  const extrasKey = (doc) => JSON.stringify([doc.requirement || "", doc.vat || "", [...doc.nextSteps].sort(),
     doc.attachments.map((a) => a.token || `new:${a.name}:${a.size}`)]);
 
   function rememberEdits(doc) {
     if (doc.mode !== "record") return;
-    if (isDirty(doc)) S.edits[doc.id] = { model: doc.model, nextSteps: doc.nextSteps, attachments: doc.attachments };
+    if (isDirty(doc)) {
+      S.edits[doc.id] = { model: doc.model, nextSteps: doc.nextSteps, attachments: doc.attachments,
+        requirement: doc.requirement, vat: doc.vat };
+    }
     else delete S.edits[doc.id];
   }
 
@@ -639,6 +644,8 @@
     if (!doc) return;
     if (doc.mode === "draft" && S.draft) {
       S.draft.nextSteps = doc.nextSteps;
+      S.draft.requirement = doc.requirement;
+      S.draft.vat = doc.vat;
       S.draftFiles = doc.attachments.filter((a) => a.file).map((a) => a.file);
       persistDraftSoon();
     }
@@ -656,9 +663,25 @@
     return [...seen.values()];
   }
 
+  /** Single-choice chips for Requirement type / VAT (new briefs start on Gemini's pick). */
+  function renderChoice(listId, whyId, choices, picked, suggestion) {
+    $(listId).replaceChildren(...Object.entries(choices).map(([key, c]) => h("button", {
+      type: "button", role: "radio", class: "ns-chip",
+      "aria-checked": String(picked === key), "aria-pressed": String(picked === key), "data-choice": key,
+    }, picked === key ? iconEl("check") : null, key === "YES" || key === "NO" ? c.label.trim() : key, " ", h("small", {}, c.hint))));
+    const why = $(whyId);
+    why.hidden = !suggestion.reason;
+    why.replaceChildren(h("b", {}, "Gemini: "), suggestion.reason || "");
+  }
+
   function renderExtras() {
     const doc = S.doc;
     if (!doc) return;
+    const m = doc.model;
+    renderChoice("#reqChips", "#reqWhy", cfg().REQUIREMENT_TYPES, doc.requirement,
+      { key: m.requirement?.type || "", reason: m.requirement?.reason || "" });
+    renderChoice("#vatChips", "#vatWhy", cfg().VAT_CHOICES, doc.vat,
+      { key: m.vat?.applies || "", reason: m.vat?.reason || "" });
     const chosen = new Set(doc.nextSteps.map((t) => t.toLowerCase()));
     $("#nsChips").replaceChildren(...stepOptions(doc).map((opt) => h("button", {
       type: "button", class: "ns-chip", "aria-pressed": String(chosen.has(opt.toLowerCase())), "data-step": opt,
@@ -682,6 +705,14 @@
   }
 
   function wireExtras() {
+    for (const [id, prop] of [["#reqChips", "requirement"], ["#vatChips", "vat"]]) {
+      $(id).addEventListener("click", (e) => {
+        const chip = e.target.closest("[data-choice]");
+        if (!chip || !S.doc) return;
+        S.doc[prop] = S.doc[prop] === chip.dataset.choice ? "" : chip.dataset.choice;   // click again to clear
+        onExtrasChange();
+      });
+    }
     $("#nsChips").addEventListener("click", (e) => {
       const chip = e.target.closest(".ns-chip");
       if (!chip || !S.doc) return;
@@ -744,8 +775,11 @@
   function openDoc(doc) {
     doc.savedJSON = doc.mode === "record" ? fingerprint(doc.original) : null;
     doc.nextSteps = [...(doc.nextSteps || [])];
+    doc.requirement = doc.requirement || "";
+    doc.vat = doc.vat || "";
     doc.attachments = (doc.attachments || []).map((a) => ({ ...a }));
-    doc.savedExtras = doc.mode === "record" ? extrasKey({ nextSteps: doc.savedNextSteps || doc.nextSteps,
+    doc.savedExtras = doc.mode === "record" ? extrasKey({ requirement: doc.savedRequirement ?? doc.requirement,
+      vat: doc.savedVat ?? doc.vat, nextSteps: doc.savedNextSteps || doc.nextSteps,
       attachments: doc.savedAttachments || doc.attachments }) : null;
     S.doc = doc;
     showView("result");
@@ -908,9 +942,11 @@
         const skipped = await uploadPending(doc, $("#saveConfirm .label"));
         const extra = { filedBy, sources: (doc.sources || []).join("\n") };
         if (doc.nextSteps.length) extra.nextSteps = doc.nextSteps;
+        if (doc.requirement) extra.requirement = doc.requirement;
+        if (doc.vat) extra.vat = doc.vat;
         if (attachedTokens(doc).length) extra.attachments = attachedTokens(doc);
         rec = await BX.lark.create(doc.model, extra, S.draft?.clientToken);
-        Object.assign(rec, { nextSteps: [...doc.nextSteps], attachments: attachedList(doc) });
+        Object.assign(rec, { nextSteps: [...doc.nextSteps], attachments: attachedList(doc), requirement: doc.requirement, vat: doc.vat });
         if (skipped.length) toast(`Saved, but these files weren't attached: ${skipped.join("; ")}`, { type: "error", timeout: 9000 });
         setDraft(null);
         S.draftFiles = [];
@@ -918,7 +954,8 @@
         upsertBrief(rec, true);
       } else {
         const skipped = await uploadPending(doc, $("#saveConfirm .label"));
-        await BX.lark.update(doc.id, doc.model, { nextSteps: doc.nextSteps, attachments: attachedTokens(doc) });
+        await BX.lark.update(doc.id, doc.model, { nextSteps: doc.nextSteps, attachments: attachedTokens(doc),
+          requirement: doc.requirement, vat: doc.vat });
         const model = B.normalize(doc.model);
         doc.original = clone(model);
         doc.savedJSON = fingerprint(model);
@@ -928,7 +965,8 @@
         renderExtras();
         if (skipped.length) toast(`Saved, but these files weren't attached: ${skipped.join("; ")}`, { type: "error", timeout: 9000 });
         // The update response only echoes the columns we sent, so keep Status etc. from the list.
-        upsertBrief({ id: doc.id, model: clone(model), nextSteps: [...doc.nextSteps], attachments: attachedList(doc) }, false);
+        upsertBrief({ id: doc.id, model: clone(model), nextSteps: [...doc.nextSteps], attachments: attachedList(doc),
+          requirement: doc.requirement, vat: doc.vat }, false);
       }
       busy(btn, false);
       $("#saveDialog").close();
@@ -1109,7 +1147,9 @@
       mode: "record", id, model: clone(e?.model || b.model), original: clone(b.model),
       status: b.status, filedBy: b.filedBy, sources: b.sources,
       nextSteps: e?.nextSteps || b.nextSteps || [], attachments: e?.attachments || b.attachments || [],
+      requirement: e ? e.requirement : b.requirement || "", vat: e ? e.vat : b.vat || "",
       savedNextSteps: b.nextSteps || [], savedAttachments: b.attachments || [],
+      savedRequirement: b.requirement || "", savedVat: b.vat || "",
     });
   }
 

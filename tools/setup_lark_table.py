@@ -61,6 +61,9 @@ FIELDS = [
     ("Next Steps", MULTI_SELECT, options("AM Assignment", "File Project Brief and trigger Lark GC",
                                          "PM Assignment", "Pitch Deck", "Other")),
     ("Attachments", ATTACHMENT, None),
+    ("Requirement Type", SELECT, options("RFP (Request for Proposal)", "RFQ (Request for Quotation)",
+                                         "RFI (Request for Information)")),
+    ("VAT", MULTI_SELECT, options("Yes", "No ")),   # option name has a trailing space in Lark
     ("Last Modified", MODIFIED_TIME, {"date_formatter": "yyyy/MM/dd HH:mm"}),
 ]
 

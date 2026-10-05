@@ -18,6 +18,7 @@
     submission: "Proposal Submission", submissionDetails: "Submission Details", notes: "Notes",
     questions: "Questions for Client", summary: "Summary", filedBy: "Filed By", sources: "Source Files",
     json: "Brief JSON", modified: "Last Modified", nextSteps: "Next Steps", attachments: "Attachments",
+    requirement: "Requirement Type", vat: "VAT",
   };
   const AUTH_CODES = new Set([99991661, 99991663, 99991668, 99991677]);
   const FRIENDLY = {
@@ -119,6 +120,13 @@
     if ("sources" in extra) fields[FIELD.sources] = extra.sources || "";
     if ("status" in extra) fields[FIELD.status] = extra.status;
     if ("nextSteps" in extra) fields[FIELD.nextSteps] = extra.nextSteps;   // Lark-only, never in the document
+    if ("requirement" in extra) {   // single select: "RFP (Request for Proposal)" etc.
+      fields[FIELD.requirement] = cfg().REQUIREMENT_TYPES[extra.requirement]?.label || null;
+    }
+    if ("vat" in extra) {           // multi-select in Lark, but only ever one value
+      const label = cfg().VAT_CHOICES[extra.vat]?.label;
+      fields[FIELD.vat] = label ? [label] : [];
+    }
     if ("attachments" in extra) fields[FIELD.attachments] = extra.attachments.map((t) => ({ file_token: t }));
     if (fields[FIELD.due] == null) fields[FIELD.due] = null;   // clears the cell on update
     if (fields[FIELD.filed] == null) delete fields[FIELD.filed];
@@ -136,6 +144,13 @@
 
   const splitLines = (s) => cellText(s).split("\n").map((l) => l.replace(/^\s*(?:•|\d+\.)\s*/, "").trim())
     .filter((l) => l && !B.isMissing(l));
+
+  /** Map a Lark option name ("RFQ (Request for Quotation)", "No ") back to its key. */
+  function matchChoice(choices, value) {
+    const v = String(value || "").trim().toLowerCase();
+    if (!v) return "";
+    return Object.keys(choices).find((k) => choices[k].label.trim().toLowerCase() === v || v.startsWith(k.toLowerCase())) || "";
+  }
 
   /** Rebuild a brief from a row: the JSON column first, the readable columns as a fallback. */
   function fromRecord(rec) {
@@ -173,6 +188,8 @@
       sources: cellText(f[FIELD.sources]),
       nextSteps: (Array.isArray(f[FIELD.nextSteps]) ? f[FIELD.nextSteps] : f[FIELD.nextSteps] ? [f[FIELD.nextSteps]] : [])
         .map(cellText).filter(Boolean),
+      requirement: matchChoice(cfg().REQUIREMENT_TYPES, cellText(f[FIELD.requirement])),
+      vat: matchChoice(cfg().VAT_CHOICES, [].concat(f[FIELD.vat] || []).map(cellText)[0] || ""),
       attachments: (Array.isArray(f[FIELD.attachments]) ? f[FIELD.attachments] : [])
         .filter((a) => a && a.file_token)
         .map((a) => ({ token: a.file_token, name: a.name || "file", size: a.size || 0, url: a.url || a.tmp_url || "" })),

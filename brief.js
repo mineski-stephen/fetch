@@ -57,6 +57,9 @@
       scope_of_work: pairs(raw.scope_of_work, "item", "detail"),
       budget: { amount: str(budget.amount), type: pick(budget.type, BUDGET_TYPES) },
       proposal_submission: { type: pick(sub.type, SUBMISSION_TYPES), details: str(sub.details) },
+      // AI suggestions shown beside the document (not in it); the user's pick goes to Lark.
+      requirement: { type: pick(raw.requirement?.type, ["RFP", "RFQ", "RFI", ""]), reason: str(raw.requirement?.reason, "") },
+      vat: { applies: pick(raw.vat?.applies, ["YES", "NO", ""]), reason: str(raw.vat?.reason, "") },
       notes: list(raw.notes),
       clarifications: list(raw.clarifications),
       summary: str(raw.summary, ""),

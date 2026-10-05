@@ -27,6 +27,17 @@ window.BRIEF_CONFIG = {
   // other briefs, or typed by users, are offered too; new ones are added to Lark on save.
   NEXT_STEP_OPTIONS: ["AM Assignment", "File Project Brief and trigger Lark GC", "PM Assignment", "Pitch Deck", "Other"],
 
+  // "Requirement Type" and "VAT" choices, written to Lark exactly as named in those columns.
+  REQUIREMENT_TYPES: {
+    RFP: { label: "RFP (Request for Proposal)", hint: "Pitch and propose" },
+    RFQ: { label: "RFQ (Request for Quotation)", hint: "Quotation only" },
+    RFI: { label: "RFI (Request for Information)", hint: "Just asking, nothing to submit" },
+  },
+  VAT_CHOICES: {
+    YES: { label: "Yes", hint: "12% VAT (local client)" },
+    NO: { label: "No ", hint: "0% VAT (foreign / exempt)" },   // the Lark option name has a trailing space
+  },
+
   // Largest file attached to the Lark row. The Lark proxy rejects request bodies
   // over 10 MB by default (its MAX_BODY_BYTES); Lark itself allows up to 20 MB.
   LARK_ATTACH_MAX_MB: 10,
