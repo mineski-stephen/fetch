@@ -15,13 +15,16 @@
 
   // state: unset | unknown | waking | warm | down. `configured` = the service has a shared key.
   // `error` explains the last failed check (shown in Settings).
-  const warm = { state: "unknown", since: Date.now(), at: 0, configured: null, error: "", promise: null, loop: null };
+  // `blocked` = requests are being refused inside the browser (ad blocker / privacy extension).
+  const warm = { state: "unknown", since: Date.now(), at: 0, configured: null, error: "", promise: null, loop: null,
+    blocked: false, fastFails: 0 };
   const emit = () => document.dispatchEvent(new Event("bx:status"));
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   /** One GET /health. Anything but the service's JSON (e.g. Render's HTML
    *  "starting up" page or a 502 during a deploy) counts as "not ready yet". */
   function ping(timeoutMs) {
+    const started = Date.now();
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), timeoutMs);
     return fetch(`${cfg().GEMINI_PROXY_URL}/health`, { cache: "no-store", signal: ctl.signal })
@@ -31,12 +34,16 @@
         if (!type.includes("json")) throw new Error("the service is still starting");
         const d = await r.json();
         if (d.status !== "ok") throw new Error("unexpected health response");
-        Object.assign(warm, { state: "warm", configured: !!d.configured, at: Date.now(), error: "" });
+        Object.assign(warm, { state: "warm", configured: !!d.configured, at: Date.now(), error: "", blocked: false, fastFails: 0 });
         return true;
       })
       .catch((e) => {
+        // A sleeping Render service holds the request open; a blocked one fails at once.
+        const instant = e instanceof TypeError && Date.now() - started < 1500 && navigator.onLine !== false;
+        warm.fastFails = instant ? warm.fastFails + 1 : 0;
+        warm.blocked = warm.fastFails >= 2;
         warm.error = e.name === "AbortError" ? "no answer within 90 s"
-          : e instanceof TypeError ? "network error — address wrong, offline, or blocked" : e.message;
+          : e instanceof TypeError ? "network error - address wrong, offline, or blocked" : e.message;
         warm.state = "down";
         return false;
       })
@@ -65,7 +72,7 @@
       const end = Date.now() + maxMs;
       while (Date.now() < end) {
         if (await warmup(true)) return true;
-        if (!cfg().GEMINI_PROXY_URL) return false;
+        if (!cfg().GEMINI_PROXY_URL || warm.blocked) break;   // retrying won't get past a blocker
         warm.state = "waking";   // a failed check while booting is normal; keep trying
         emit();
         await sleep(3000);
@@ -114,7 +121,7 @@
     try {
       loaded = await loadImage(file);
     } catch (_) {
-      return file;   // e.g. HEIC outside Safari — the proxy accepts it as-is
+      return file;   // e.g. HEIC outside Safari - the proxy accepts it as-is
     }
     const { img, url } = loaded;
     try {

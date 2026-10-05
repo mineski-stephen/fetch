@@ -97,20 +97,19 @@
         !B.isMissing(m.due_date.note) && m.due_date.note ? { text: m.due_date.note, fontSize: 8.5, color: C.muted } : ""] }
       : val(m.due_date.note);
     const period = { stack: [val(m.event_period)].concat(m.key_dates.length ? [{
-      ul: m.key_dates.map((k) => ({ text: [{ text: k.date ? `${k.date} — ` : "", bold: true }, k.label] })),
+      ul: m.key_dates.map((k) => ({ text: [{ text: k.date ? `${k.date} - ` : "", bold: true }, k.label] })),
       fontSize: 8.5, markerColor: C.marker, margin: [0, 4, 0, 0],
     }] : []) };
     const scope = m.scope_of_work.map((s) => ({ text: s.item ? [{ text: `${s.item}: `, bold: true }, s.detail] : s.detail }));
 
     const notes = [bullets(m.notes)];
-    if (m.clarifications.length) {
-      notes.push({ text: "To clarify with the client", bold: true, margin: [0, 4, 0, 4] }, bullets(m.clarifications, true));
-    }
+    const questions = m.show_clarifications && m.clarifications.length
+      ? [heading("Questions for the Client"), bullets(m.clarifications, true)] : [];
 
     return {
       pageSize: "A4",
       pageMargins: [MARGIN_X, 58, MARGIN_X, 54],
-      info: { title: `Project Brief — ${m.project_title}`, author: "Mineski Global", subject: "Project Brief Summary",
+      info: { title: `Project Brief - ${m.project_title}`, author: "Mineski Global", subject: "Project Brief Summary",
         creator: "Fetch" },
       background: () => ({ canvas: [{ type: "rect", x: 0, y: 0, w: PAGE_W, h: 9, color: C.yellow }] }),
       footer: (page, count) => ({
@@ -123,7 +122,7 @@
       content: [
         { text: "PROJECT BRIEF SUMMARY", style: "kicker" },
         { text: m.project_title, style: "title" },
-        m.project_title_is_placeholder ? { text: "Suggested title — the brief did not name the project", fontSize: 7.5, color: C.amber, margin: [0, 0, 0, 2] } : "",
+        m.project_title_is_placeholder ? { text: "Suggested title - the brief did not name the project", fontSize: 7.5, color: C.amber, margin: [0, 0, 0, 2] } : "",
         { text: [B.isMissing(m.client_name) ? "" : m.client_name, B.isMissing(m.client_name) ? "" : "   •   ",
           `Filed ${B.fmtDate(m.date_filed)}`], style: "meta" },
         m.summary ? boxed({ text: [{ text: "TL;DR  ", bold: true, color: C.amber }, m.summary] }, C.soft) : "",
@@ -154,6 +153,7 @@
 
         heading("Additional Notes"),
         boxed({ stack: notes }, "#FAFAF7"),
+        ...questions,
       ],
       styles: {
         kicker: { fontSize: 8, bold: true, color: C.amber, characterSpacing: 1.6, margin: [0, 0, 0, 6] },

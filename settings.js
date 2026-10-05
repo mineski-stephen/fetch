@@ -1,5 +1,5 @@
 /*
- * Settings — per-browser preferences layered over config.js:
+ * Settings - per-browser preferences layered over config.js:
  *
  *   config.js defaults  ←  saved settings (this browser)  ←  ?gemini= / ?lark= (localhost only, for testing)
  *
@@ -103,7 +103,14 @@
     }
   }
 
+  /** "system" follows the OS; "light" / "dark" force it (see the inline script in index.html). */
+  function applyTheme(theme = read().theme) {
+    if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
+    else delete document.documentElement.dataset.theme;
+  }
+
   BX.settings = {
+    applyTheme,
     get: read,
     set,
     build,
@@ -147,11 +154,13 @@
   function paintStatus() {
     const w = BX.extract.warm;
     const gem = {
-      unset: ["muted", "Not set — add its address under Advanced"],
+      unset: ["muted", "Not set - add its address under Advanced"],
       unknown: ["muted", "Not checked yet"],
       waking: ["warn", "Waking up… free servers sleep when idle (up to a minute)"],
       warm: ["ok", w.configured === false ? "Awake · no shared key, so add yours above" : "Awake · using the shared Gemini key"],
-      down: ["err", `Can't reach it${w.error ? ` (${w.error})` : ""}. Fetch will keep trying; check the address under Advanced if this persists.`],
+      down: ["err", w.blocked
+        ? "Blocked by an ad blocker or privacy extension in this browser. Allow the address below, then reload."
+        : `Can't reach it${w.error ? ` (${w.error})` : ""}. Fetch will keep trying; check the address under Advanced if this persists.`],
     }[BX.config.GEMINI_PROXY_URL ? w.state : "unset"] || ["muted", ""];
     $("#geminiDot").className = `dot tone-${gem[0]}`;
     let where = "";
@@ -181,7 +190,15 @@
     $("#setLarkTable").placeholder = DEFAULTS.LARK_TABLE_URL;
   }
 
+  function paintTheme() {
+    const current = read().theme || "system";
+    document.querySelectorAll("#themeSeg [data-theme-choice]").forEach((b) => {
+      b.setAttribute("aria-checked", String(b.dataset.themeChoice === current));
+    });
+  }
+
   function show() {
+    paintTheme();
     $("#setName").value = BX.settings.name();
     $("#geminiKey").value = BX.settings.geminiKey();
     $("#geminiKey").type = "password";
@@ -195,6 +212,14 @@
 
   function mount(h) {
     hooks = h;
+    $("#themeSeg").addEventListener("click", (e) => {
+      const b = e.target.closest("[data-theme-choice]");
+      if (!b) return;
+      const theme = b.dataset.themeChoice;
+      set({ theme: theme === "system" ? "" : theme });
+      applyTheme(theme);
+      paintTheme();
+    });
     $("#toggleKey").onclick = () => {
       const input = $("#geminiKey");
       input.type = input.type === "password" ? "text" : "password";

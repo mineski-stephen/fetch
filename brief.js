@@ -16,9 +16,10 @@
   const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+  const dash = (v) => String(v).replace(/\u2014/g, "-");   // house style: plain hyphens, never em dashes
   const isMissing = (v) => v == null || !String(v).trim() || String(v).trim().toLowerCase() === "not specified";
-  const str = (v, fb = NS) => (isMissing(v) ? fb : String(v).trim());
-  const list = (v) => (Array.isArray(v) ? v : v ? [v] : []).map((x) => String(x ?? "").trim()).filter((x) => x && !isMissing(x));
+  const str = (v, fb = NS) => (isMissing(v) ? fb : dash(v).trim());
+  const list = (v) => (Array.isArray(v) ? v : v ? [v] : []).map((x) => dash(x ?? "").trim()).filter((x) => x && !isMissing(x));
   const pairs = (v, a, b) => (Array.isArray(v) ? v : [])
     .map((x) => (x && typeof x === "object" ? { [a]: str(x[a], ""), [b]: str(x[b], "") } : { [a]: "", [b]: str(x, "") }))
     .filter((x) => x[a] || x[b]);
@@ -34,6 +35,18 @@
     if (!m) return "";
     const d = new Date(+m[1], +m[2] - 1, +m[3]);
     return d.getMonth() === +m[2] - 1 ? m[0] : "";
+  }
+
+  // The VAT pick must agree with its own note (same rule as the extraction service).
+  const VAT_EX = /exclusive of vat|vat[- ]?ex|ex[- ]?vat|net of vat|without vat|zero[- ]rated|vat[- ]exempt|exempt from vat|0 ?% ?vat|no vat/i;
+  const VAT_INC = /inclusive of vat|vat[- ]?inc|inc(?:l\.?|lusive)? ?vat|with vat|including vat|plus vat|12 ?% ?vat/i;
+  const NEGATED = /\b(no|not|without any|doesn't|does not|never) (mention|state|specif|say)/i;
+
+  function vatChoice(v) {
+    const out = { applies: pick(v?.applies, ["YES", "NO", ""]), reason: str(v?.reason, "") };
+    const ex = VAT_EX.test(out.reason), inc = VAT_INC.test(out.reason);
+    if (ex !== inc && !NEGATED.test(out.reason)) out.applies = ex ? "NO" : "YES";
+    return out;
   }
 
   /** Coerce anything (proxy output, a Lark row, an older version) into schema v1. */
@@ -59,9 +72,10 @@
       proposal_submission: { type: pick(sub.type, SUBMISSION_TYPES), details: str(sub.details) },
       // AI suggestions shown beside the document (not in it); the user's pick goes to Lark.
       requirement: { type: pick(raw.requirement?.type, ["RFP", "RFQ", "RFI", ""]), reason: str(raw.requirement?.reason, "") },
-      vat: { applies: pick(raw.vat?.applies, ["YES", "NO", ""]), reason: str(raw.vat?.reason, "") },
+      vat: vatChoice(raw.vat),
       notes: list(raw.notes),
       clarifications: list(raw.clarifications),
+      show_clarifications: !!raw.show_clarifications,   // optional section; off by default
       summary: str(raw.summary, ""),
       extraction_warnings: list(raw.extraction_warnings),
     };
@@ -101,12 +115,12 @@
     return { text: `in ${n} days`, tone: "ok" };
   }
 
-  /** "16 Oct 2026 (Fri) — 5:00 PM via email" or "Not specified". */
+  /** "16 Oct 2026 (Fri) - 5:00 PM via email" or "Not specified". */
   function dueText(m, withNote = true) {
     const date = fmtDate(m.due_date.date, true);
     const note = isMissing(m.due_date.note) ? "" : m.due_date.note;
     if (!date) return note || NS;
-    return withNote && note ? `${date} — ${note}` : date;
+    return withNote && note ? `${date} - ${note}` : date;
   }
 
   const label = (enumValue) => LABELS[enumValue] || enumValue;
@@ -117,16 +131,15 @@
     const val = (v) => (isMissing(v) ? `*${NS}*` : v);
     const bullets = (arr) => (arr.length ? arr.map((x) => `* ${x}`).join("\n") : `* *${NS}*`);
     const period = [val(m.event_period)]
-      .concat(m.key_dates.map((k) => `• ${[k.date, k.label].filter(Boolean).join(" — ")}`)).join("\n");
+      .concat(m.key_dates.map((k) => `• ${[k.date, k.label].filter(Boolean).join(" - ")}`)).join("\n");
     const title = m.project_title + (m.project_title_is_placeholder ? " *(suggested title)*" : "");
     const scope = m.scope_of_work.length
       ? m.scope_of_work.map((s) => (s.item ? `* **${s.item}:** ${s.detail}` : `* ${s.detail}`)).join("\n")
       : `* *${NS}*`;
 
     const notes = (m.notes.length ? m.notes : [`*${NS}*`]).map((n) => `> * ${n}`);
-    if (m.clarifications.length) {
-      notes.push(">", "> **To clarify with the client:**", ">", ...m.clarifications.map((q, i) => `> ${i + 1}. ${q}`));
-    }
+    const questions = m.show_clarifications && m.clarifications.length
+      ? ["---", "### **Questions for the Client**", m.clarifications.map((q, i) => `${i + 1}. ${q}`).join("\n")] : [];
 
     // Blocks are separated by blank lines; lines inside a block are not.
     const blocks = [
@@ -153,12 +166,13 @@
       "#### **Scope of Work**", scope,
       "#### **Financials & Submissions**",
       [
-        `* **Estimated Budget:** ${val(m.budget.amount)} — **${m.budget.type}**`,
-        `* **Proposal Submission:** **${m.proposal_submission.type}** — ${val(m.proposal_submission.details)}`,
+        `* **Estimated Budget:** ${val(m.budget.amount)} - **${m.budget.type}**`,
+        `* **Proposal Submission:** **${m.proposal_submission.type}** - ${val(m.proposal_submission.details)}`,
       ].join("\n"),
       "---",
       "### **Additional Notes**",
       notes.join("\n"),
+      ...questions,
     ];
     return blocks.filter((b) => b != null).join("\n\n") + "\n";
   }
@@ -187,7 +201,7 @@
   function chatFooter(m) {
     return [
       ["💰", "Budget", `${m.budget.amount}${m.budget.type !== "NOT SPECIFIED" ? ` (${label(m.budget.type)})` : ""}`],
-      ["📝", "Proposal", `${label(m.proposal_submission.type)}${isMissing(m.proposal_submission.details) ? "" : ` — ${m.proposal_submission.details}`}`],
+      ["📝", "Proposal", `${label(m.proposal_submission.type)}${isMissing(m.proposal_submission.details) ? "" : ` - ${m.proposal_submission.details}`}`],
     ];
   }
 
@@ -199,7 +213,7 @@
     out.push("");
     chatFooter(m).forEach(([e, k, v]) => out.push(`${e} ${k}: ${v}`));
     if (m.notes.length) out.push("", "🗒️ Notes", ...m.notes.map((x) => `• ${x}`));
-    if (m.clarifications.length) out.push("", "❓ To clarify with client", ...m.clarifications.map((x, i) => `${i + 1}. ${x}`));
+    if (m.show_clarifications && m.clarifications.length) out.push("", "❓ Questions for the client", ...m.clarifications.map((x, i) => `${i + 1}. ${x}`));
     out.push("", `Filed ${fmtDate(m.date_filed)}`);
     return out.join("\n");
   }
@@ -213,7 +227,7 @@
     out.push("");
     chatFooter(m).forEach(([e, k, v]) => out.push(`${e} <b>${k}:</b> ${esc(v)}`));
     if (m.notes.length) out.push("", "<b>🗒️ Notes</b>", ...m.notes.map((x) => `• ${esc(x)}`));
-    if (m.clarifications.length) out.push("", "<b>❓ To clarify with client</b>", ...m.clarifications.map((x, i) => `${i + 1}. ${esc(x)}`));
+    if (m.show_clarifications && m.clarifications.length) out.push("", "<b>❓ Questions for the client</b>", ...m.clarifications.map((x, i) => `${i + 1}. ${esc(x)}`));
     out.push("", `<i>Filed ${fmtDate(m.date_filed)}</i>`);
     return `<div>${out.join("<br>")}</div>`;
   }
@@ -221,7 +235,7 @@
   /** Safe file name stem, e.g. "Project Brief - NovaFizz - Campus Clash - 2026-10-02". */
   function fileStem(m) {
     const clean = (s) => String(s).replace(/[\\/:*?"<>|\u0000-\u001f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 60);
-    const client = isMissing(m.client_name) ? "" : clean(m.client_name.split(/\s[—–-]\s|\(/)[0]);
+    const client = isMissing(m.client_name) ? "" : clean(m.client_name.split(/\s[-–-]\s|\(/)[0]);
     return ["Project Brief", client, clean(m.project_title), m.date_filed].filter(Boolean).join(" - ");
   }
 

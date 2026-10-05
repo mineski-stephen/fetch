@@ -63,7 +63,7 @@ FIELDS = [
     ("Attachments", ATTACHMENT, None),
     ("Requirement Type", SELECT, options("RFP (Request for Proposal)", "RFQ (Request for Quotation)",
                                          "RFI (Request for Information)")),
-    ("VAT", MULTI_SELECT, options("Yes", "No ")),   # option name has a trailing space in Lark
+    ("VAT", MULTI_SELECT, options("VAT Inc.", "VAT Ex.")),
     ("Last Modified", MODIFIED_TIME, {"date_formatter": "yyyy/MM/dd HH:mm"}),
 ]
 

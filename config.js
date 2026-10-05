@@ -1,5 +1,5 @@
 /*
- * Fetch — default settings for everyone who opens the page.
+ * Fetch - default settings for everyone who opens the page.
  *
  * Each user can override the service addresses, the Lark table and their own
  * Gemini API key on the page's Settings screen (saved in their browser only).
@@ -9,7 +9,7 @@
  */
 window.BRIEF_CONFIG = {
   // Render service hosting render/gemini-pdf (no trailing slash).
-  GEMINI_PROXY_URL: "https://gemini-proxy-oj4u.onrender.com",
+  GEMINI_PROXY_URL: "https://gemini-pdf-6wp4.onrender.com",
 
   // Render service hosting the Lark CORS proxy (tech/lark-proxy).
   LARK_PROXY_URL: "https://lark-proxy-dwiw.onrender.com",
@@ -34,15 +34,15 @@ window.BRIEF_CONFIG = {
     RFI: { label: "RFI (Request for Information)", hint: "Just asking, nothing to submit" },
   },
   VAT_CHOICES: {
-    YES: { label: "Yes", hint: "12% VAT (local client)" },
-    NO: { label: "No ", hint: "0% VAT (foreign / exempt)" },   // the Lark option name has a trailing space
+    YES: { label: "VAT Inc.", hint: "Prices include 12% VAT" },
+    NO: { label: "VAT Ex.", hint: "VAT-exclusive or 0% VAT" },
   },
 
   // Largest file attached to the Lark row. The Lark proxy rejects request bodies
   // over 10 MB by default (its MAX_BODY_BYTES); Lark itself allows up to 20 MB.
   LARK_ATTACH_MAX_MB: 10,
 
-  // Upload limits — keep in sync with the proxy's MAX_UPLOAD_MB / MAX_FILES.
+  // Upload limits - keep in sync with the proxy's MAX_UPLOAD_MB / MAX_FILES.
   MAX_UPLOAD_MB: 50,
   MAX_FILES: 10,
 };

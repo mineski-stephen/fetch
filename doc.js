@@ -84,7 +84,7 @@
     const rows = empty ? [fields ? {} : ""] : items;
     const list = h(opts.ordered ? "ol" : "ul", { class: `doc-list${fields ? " is-pairs" : ""}`, "data-list": name });
     rows.forEach((_, i) => {
-      const ph = empty ? opts.emptyText || `${B.NS} — click to add` : "New point";
+      const ph = empty ? opts.emptyText || `${B.NS} - click to add` : "New point";
       const content = fields
         ? [ed(`${name}.${i}.${fields[0]}`, { tag: "strong", cls: "pair-a", placeholder: opts.aPlaceholder || "Label" }),
           h("span", { class: "pair-sep", "aria-hidden": "true" }, opts.sep || ": "),
@@ -159,7 +159,7 @@
         row("Event Date / Period",
           ed("event_period", { tag: "div", label: "Event date or period" }),
           h("div", { class: "kd" }, listBlock("key_dates", {
-            sep: " — ", aPlaceholder: "Date", bPlaceholder: "What happens", addText: "Add key date",
+            sep: " - ", aPlaceholder: "Date", bPlaceholder: "What happens", addText: "Add key date",
             emptyText: "No key dates",
           }))),
         row("Venue", ed("venue", { label: "Venue" }))))),
@@ -179,12 +179,27 @@
           row("Proposal Submission", h("div", { class: "fin-line" },
             enumChip("proposal_submission.type"), ed("proposal_submission.details", { label: "Submission details" })))))),
 
-      section("Additional Notes", h("div", { class: "doc-quote" },
-        listBlock("notes", { label: "Note" }),
-        h("h4", {}, "To clarify with the client"),
-        listBlock("clarifications", { ordered: true, emptyText: "No open questions", addText: "Add question" }))),
+      section("Additional Notes", h("div", { class: "doc-quote" }, listBlock("notes", { label: "Note" }))),
+
+      clarifications(m),
 
       h("footer", { class: "doc-foot" }, "Mineski Global • Project Brief Summary"));
+  }
+
+  /** Suggested questions for the client: a separate section, hidden until the user wants it. */
+  function clarifications(m) {
+    const n = m.clarifications.length;
+    if (!m.show_clarifications) {
+      return h("div", { class: "clar-bar" }, icon("bulb"),
+        h("span", {}, n ? h("b", {}, `${n} suggested question${n === 1 ? "" : "s"}`) : h("b", {}, "Questions for the client"),
+          n ? " to ask the client (not in the PDF or chat text while hidden)" : " (none suggested)"),
+        h("button", { type: "button", class: "clar-toggle", "data-clar": "show", contenteditable: "false" }, n ? "Show" : "Add"));
+    }
+    return h("section", { class: "doc-sec" },
+      h("h2", {}, "Questions for the Client",
+        h("button", { type: "button", class: "clar-toggle", "data-clar": "hide", contenteditable: "false" }, "Hide")),
+      h("p", { class: "clar-sub" }, "Suggestions to clarify before writing the proposal."),
+      listBlock("clarifications", { ordered: true, emptyText: "No open questions", addText: "Add question" }));
   }
 
   // ---- rendering & focus --------------------------------------------------
@@ -312,13 +327,31 @@
   }
 
   // ---- drag to reorder (pointer events: mouse, pen and touch) -----------------
+  /** After moving <li>s, renumber their indexes and the data-paths of everything inside. */
+  function reindex(list, name) {
+    [...list.children].forEach((li, k) => {
+      li.dataset.index = k;
+      li.querySelectorAll("[data-path]").forEach((el) => {
+        const parts = el.dataset.path.split(".");
+        parts[1] = String(k);
+        el.dataset.path = parts.join(".");
+      });
+      const del = li.querySelector("[data-del]");
+      if (del) del.dataset.del = `${name}.${k}`;
+    });
+  }
+
   function moveItem(name, from, to, focusHandle = false) {
     if (from === to) return;
     const arr = model[name];
     arr.splice(to, 0, arr.splice(from, 1)[0]);
-    render(model);
+    // Move the existing element instead of re-rendering, so nothing else on the page changes.
+    const list = root.querySelector(`[data-list="${name}"]`);
+    const items = [...list.children];
+    list.insertBefore(items[from], to > from ? items[to].nextSibling : items[to]);
+    reindex(list, name);
     changed();
-    const li = root.querySelector(`[data-list="${name}"] > li[data-index="${to}"]`);
+    const li = list.children[to];
     li?.classList.add("just-moved");
     setTimeout(() => li?.classList.remove("just-moved"), 700);
     if (focusHandle) li?.querySelector(".item-drag")?.focus();
@@ -383,7 +416,12 @@
   function onClick(e) {
     const btn = e.target.closest("button");
     if (!btn || !root.contains(btn)) return;
-    if (btn.dataset.add) {
+    if (btn.dataset.clar) {
+      model.show_clarifications = btn.dataset.clar === "show";
+      render(model, model.show_clarifications && !model.clarifications.length
+        ? { focus: { path: "clarifications.0", at: "start" } } : {});
+      changed();
+    } else if (btn.dataset.add) {
       addItem(btn.dataset.add, model[btn.dataset.add].length);
     } else if (btn.dataset.del) {
       const [name, i] = btn.dataset.del.split(".");

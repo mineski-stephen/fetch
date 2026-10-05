@@ -49,7 +49,7 @@ No training needed: the landing page is one box that says "Upload your brief fil
                             ▼                           ▼
   ┌─────────────────────────────────┐      ┌────────────────────────────────┐
   │ render/gemini-pdf  (Render)     │      │ Lark CORS proxy  (Render)      │
-  │ gemini-proxy-oj4u.onrender.com  │      │ tech/lark-proxy                │
+  │ gemini-pdf-6wp4.onrender.com  │      │ tech/lark-proxy                │
   │ · shared key or user's own key  │      │ · holds Lark app credentials   │
   │ · converts Office/e-mail → text │      │ · lark-proxy-dwiw.onrender.com │
   │ · fixed prompt + JSON schema    │      └───────────────┬────────────────┘
@@ -134,7 +134,7 @@ the Lark row:
 | Estimated budget | `budget.amount` + `budget.type` | Financials | **Estimated Budget**, **Budget Type** |
 | Proposal submission | `proposal_submission.type` + `.details` | Financials | **Proposal Submission**, **Submission Details** |
 | Notes | `notes[]` | Additional Notes | **Notes** |
-| *(added)* Questions for the client | `clarifications[]` | Additional Notes → "To clarify with the client" | **Questions for Client** |
+| *(added)* Questions for the client | `clarifications[]` + `show_clarifications` | Optional **Questions for the Client** section, hidden by default: a bar under Additional Notes offers **Show** / **Hide**. Only included in the PDF, Markdown and chat text while shown. | **Questions for Client** (always saved) |
 | *(added)* TL;DR | `summary` | Under the title; first lines of the chat text | **Summary** |
 | *(added)* Source problems | `extraction_warnings[]` | Yellow banner above the document (not printed) | — |
 
@@ -212,7 +212,7 @@ The columns were created by `tools/setup_lark_table.py`:
 | Filed By | Text | Optional name entered in the save dialog (remembered per browser). |
 | Source Files | Text | Names of the uploaded files. |
 | Requirement Type | Single select | RFP (Request for Proposal: pitch and propose) · RFQ (Request for Quotation: quotation only) · RFI (Request for Information: just asking, nothing to submit). Gemini detects it, and the choice is pre-selected in the **Requirement & VAT** card beside the document, with Gemini's one-line reason; the user can change it. Saved to Lark only, not in the document. |
-| VAT | Multi-select (one value used) | Whether the quotation should include VAT: **Yes** = 12% (local / Philippine client), **No** = 0% (foreign or VAT-exempt client). Detected by Gemini from the files and pre-selected the same way. The Lark option is named `No ` with a trailing space; the page writes it exactly (see `VAT_CHOICES` in `config.js`). |
+| VAT | Multi-select (one value used) | **VAT Inc.** (prices include 12% VAT) or **VAT Ex.** (VAT-exclusive, or 0% for foreign / exempt clients). Gemini follows what the brief explicitly says first; if it says nothing, a local client means VAT Inc. and a foreign one VAT Ex. The pre-selected choice always agrees with the note shown under it. Labels: `VAT_CHOICES` in `config.js`. |
 | Next Steps | Multi-select | Picked in the **Next steps** card beside the document (AM Assignment, File Project Brief and trigger Lark GC, PM Assignment, Pitch Deck, Other, or a custom step, which Lark adds as a new option). Saved to Lark only, never part of the document, PDF or chat text. The default list is `NEXT_STEP_OPTIONS` in `config.js`. |
 | Attachments | Attachment | The uploaded brief files (plus typed text as `Brief text.txt`), uploaded on save through the Lark proxy (Drive media API, `drive:drive` scope). Files can be added or removed in the **Attachments** card. Limit per file: `LARK_ATTACH_MAX_MB` (10 MB, the Lark proxy's default `MAX_BODY_BYTES`; Lark allows up to 20 MB). Files from before a page reload must be re-added. |
 | **Brief JSON** | Text | **The source of truth the page renders from. Don't edit it by hand.** |
@@ -246,7 +246,7 @@ python tools/setup_lark_table.py --apply    # create or repair columns
 
 ### 1. Deploy the Gemini proxy (Render)
 
-Already deployed at **https://gemini-proxy-oj4u.onrender.com**. To set it up
+Already deployed at **https://gemini-pdf-6wp4.onrender.com**. To set it up
 from scratch, follow [`render/gemini-pdf/README.md`](render/gemini-pdf/README.md#deploying-to-render):
 Render → **New → Web Service** → Docker, root `render/gemini-pdf`, health check
 `/health`.
@@ -257,7 +257,7 @@ Render → **New → Web Service** → Docker, root `render/gemini-pdf`, health 
   `GOOGLE_API_KEY` (any letter case) or as a Render **Secret File** named
   `GEMINI_API_KEY`.
 - To confirm the service sees it, open
-  https://gemini-proxy-oj4u.onrender.com/: `shared_key.configured` should be
+  https://gemini-pdf-6wp4.onrender.com/: `shared_key.configured` should be
   `true`, and `shared_key.source` says where the key was found. If it says
   `false`, the Render log line `shared Gemini key: NOT FOUND` lists any
   similarly named variables, which helps spot a typo.
@@ -272,7 +272,7 @@ its `GEMINI_MODEL` variable. See
 `config.js` already points at the deployed services:
 
 ```js
-GEMINI_PROXY_URL: "https://gemini-proxy-oj4u.onrender.com",
+GEMINI_PROXY_URL: "https://gemini-pdf-6wp4.onrender.com",
 LARK_PROXY_URL:   "https://lark-proxy-dwiw.onrender.com",
 ```
 
@@ -354,6 +354,7 @@ the current browser only.
 | Setting | What it does |
 | ------- | ------------ |
 | **Gemini API key** | Your own key from [Google AI Studio](https://aistudio.google.com/apikey). It's sent to the extraction service with each brief (`X-Gemini-Api-Key` header), used once, and never stored there. **Required** when the service has no shared key; the status pill shows *Key needed*, *Using the shared key* or *Using your key*. **Save key** also checks it with Google and shows which Flash-Lite model you'll get; **Test key** re-checks it. |
+| **Appearance** | System (follows the computer), Light or Dark. Saved per browser and applied before the page draws, so there's no flash. |
 | **Your name** | Pre-fills *Filed by* when you save a brief. |
 | **Connections** | Live status of the extraction service (*Awake* / *Waking up…* / *Unreachable*) and Lark (*Connected · N briefs*), with **Wake up** and **Refresh** buttons. |
 | **Advanced: service addresses** | Override the extraction service URL, the Lark proxy URL, or the Lark table (paste the table's link). Empty = the defaults in `config.js`. |
@@ -499,8 +500,9 @@ cd render/gemini-pdf && python -m unittest discover -s tests -v
 | "Gemini usage limit reached" | Your key hit its free-tier limit. Wait a bit, or use another key. |
 | A user key fails with a network error right after an update | The extraction service still runs the old version. Redeploy it on Render. |
 | "Gemini is overloaded right now" | Temporary Gemini capacity issue. The page retries once automatically; try again in a minute. |
+| Red "Fetch can't reach its extraction service" bar, or console `net::ERR_BLOCKED_BY_CLIENT` | An ad blocker or privacy extension is blocking `gemini-pdf-6wp4.onrender.com`. Allow that address in the blocker, or pause it for the Fetch page, then reload. (The service was moved here from `gemini-proxy-…`, whose name ad-block lists tended to catch.) Fetch detects this (requests rejected instantly inside the browser) and shows the bar instead of retrying. |
 | "Waking up the extraction service…" | Render cold start (up to a minute after ~15 idle minutes). Normal; it continues by itself. |
-| Settings shows the extraction service as "Can't reach it (…)" | Fetch retries for ~3 minutes before saying this, and the reason is in brackets. Check the address under Settings → Advanced. Open https://gemini-proxy-oj4u.onrender.com/health in a browser: it should show `"status": "ok"`. |
+| Settings shows the extraction service as "Can't reach it (…)" | Fetch retries for ~3 minutes before saying this, and the reason is in brackets. Check the address under Settings → Advanced. Open https://gemini-pdf-6wp4.onrender.com/health in a browser: it should show `"status": "ok"`. |
 | "Setup needed" even though a shared key is set on Render | The service doesn't see the key. See [Deploying → 1](#1-deploy-the-gemini-proxy-render): check `shared_key` at the service's root URL, then save the variable with **Save, rebuild, and deploy**. |
 | "The app doesn't have permission to this Lark table" (`1254302`) | In the Base → Advanced Permissions, give the app's role **Can edit** on the table. |
 | "The Lark table is missing a column" (`1254045`) | A column was renamed or deleted. Run `python tools/setup_lark_table.py --apply`. |

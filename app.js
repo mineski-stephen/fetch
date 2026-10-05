@@ -1,5 +1,5 @@
 /*
- * Fetch — page controller.
+ * Fetch - page controller.
  *
  * Views (hash routes):
  *   #/              compose: drop files / type the brief      (+ processing state)
@@ -406,14 +406,9 @@
   }
 
   function tickWake() {
-    const left = BX.extract.coldLeft();
     setStep("wake");
     $("#stageLabel").textContent = "Waking up the extraction service…";
-    $("#etaNumber").textContent = left > 2 ? `~${left}` : "…";
-    $("#etaUnit").textContent = left > 2 ? "sec" : "almost";
-    $("#etaLabel").textContent = left > 2
-      ? "It sleeps when nobody's used it for a while, so the first brief takes up to a minute longer."
-      : "Almost awake…";
+    $("#etaLabel").textContent = "It sleeps when nobody's used it for a while, so the first brief takes a little longer.";
   }
 
   function tick() {
@@ -436,7 +431,7 @@
       const r = (t - spent) / Math.max(6, est.total - spent);
       p = share + (1 - share) * (r < 1 ? 0.9 * r : 0.9 + 0.08 * (1 - Math.exp(-(r - 1) * 2)));
       step = r < 0.3 ? 1 : r < 0.75 ? 2 : 3;
-      label = r > 1.25 ? "Still working — complex briefs take a little longer…" : STAGES[step];
+      label = r > 1.25 ? "Still working - complex briefs take a little longer…" : STAGES[step];
     }
     setRing(p);
     setStep(step);
@@ -450,7 +445,7 @@
     } else {
       $("#etaNumber").textContent = "…";
       $("#etaUnit").textContent = "almost";
-      $("#etaLabel").textContent = left > -20 ? "Almost done…" : "Gemini is taking longer than usual. Hang tight — it'll retry automatically if it's busy.";
+      $("#etaLabel").textContent = left > -20 ? "Almost done…" : "Gemini is taking longer than usual. Hang tight - it'll retry automatically if it's busy.";
     }
   }
 
@@ -494,6 +489,10 @@
         if (S.job !== job) return;
         if (!ok) {
           S.job = null;
+          if (BX.extract.warm.blocked) {
+            return showLoaderError({ code: "network", message: "An ad blocker or privacy extension in this browser is blocking Fetch's extraction service. "
+              + `Allow ${new URL(cfg().GEMINI_PROXY_URL).host} in the blocker (or pause it for this page), reload, and try again.` });
+          }
           return showLoaderError({ code: "network", message: `Couldn't reach the extraction service at ${cfg().GEMINI_PROXY_URL}${
             BX.config.GEMINI_OVERRIDDEN ? " (a test address set by the page link; open the page with ?reset to use the normal one)" : ""
           }. Check your connection, then try again.` });
@@ -616,11 +615,12 @@
 
   function showDraft() {
     const d = S.draft;
+    d.model = B.normalize(d.model);   // tidy drafts saved by older versions (e.g. em dashes)
     openDoc({
       mode: "draft", model: d.model, original: d.original, meta: d.meta, sources: d.sources,
       nextSteps: d.nextSteps || [],
       requirement: d.requirement ?? d.model.requirement?.type ?? "",
-      vat: d.vat ?? d.model.vat?.applies ?? "",
+      vat: d.vat ?? B.normalize(d.model).vat.applies,
       attachments: S.draftFiles.map((f) => ({ name: f.name, size: f.size, file: f })),
       filesLost: !S.draftFiles.length && (d.sources || []).length > 0,   // page was reloaded since extraction
     });
@@ -671,7 +671,7 @@
     }, picked === key ? iconEl("check") : null, key === "YES" || key === "NO" ? c.label.trim() : key, " ", h("small", {}, c.hint))));
     const why = $(whyId);
     why.hidden = !suggestion.reason;
-    why.replaceChildren(h("b", {}, "Gemini: "), suggestion.reason || "");
+    why.replaceChildren(h("b", {}, "Note: "), suggestion.reason || "");
   }
 
   function renderExtras() {
@@ -680,8 +680,8 @@
     const m = doc.model;
     renderChoice("#reqChips", "#reqWhy", cfg().REQUIREMENT_TYPES, doc.requirement,
       { key: m.requirement?.type || "", reason: m.requirement?.reason || "" });
-    renderChoice("#vatChips", "#vatWhy", cfg().VAT_CHOICES, doc.vat,
-      { key: m.vat?.applies || "", reason: m.vat?.reason || "" });
+    const vat = B.normalize(m).vat;   // pick always agrees with its note
+    renderChoice("#vatChips", "#vatWhy", cfg().VAT_CHOICES, doc.vat, { key: vat.applies, reason: vat.reason });
     const chosen = new Set(doc.nextSteps.map((t) => t.toLowerCase()));
     $("#nsChips").replaceChildren(...stepOptions(doc).map((opt) => h("button", {
       type: "button", class: "ns-chip", "aria-pressed": String(chosen.has(opt.toLowerCase())), "data-step": opt,
@@ -783,6 +783,10 @@
       attachments: doc.savedAttachments || doc.attachments }) : null;
     S.doc = doc;
     showView("result");
+    const paper = $("#paper");   // sections animate in only when a brief is opened
+    paper.classList.add("is-entering");
+    clearTimeout(paper._entering);
+    paper._entering = setTimeout(() => paper.classList.remove("is-entering"), 1000);
     BX.doc.render(doc.model);
     renderExtras();
     refreshResult();
@@ -853,7 +857,7 @@
       const m = B.normalize(S.doc.model);
       const ok = await copyToClipboard(B.toChatText(m), B.toChatHtml(m));
       if (!ok) return toast("Couldn't copy. Select the preview text and copy it manually.", { type: "error" });
-      flash(btn, "Copied — paste it in the chat");
+      flash(btn, "Copied - paste it in the chat");
       badge(btn, "Copied!");
     };
 
@@ -1013,7 +1017,7 @@
     $("#refreshBtn").classList.add("spinning");
     if (first) renderSkeletons();
     const slow = setTimeout(() => {
-      status.textContent = "Waking up the Lark connection — the first load after a quiet spell can take up to a minute…";
+      status.textContent = "Waking up the Lark connection - the first load after a quiet spell can take up to a minute…";
     }, 5000);
     S.briefsLoading = BX.lark.listAll()
       .then((list) => {
@@ -1067,8 +1071,8 @@
       h("p", { class: "bcard-client" }, B.isMissing(m.client_name) ? "Client not specified" : m.client_name),
       m.summary && h("p", { class: "bcard-summary" }, m.summary),
       h("dl", { class: "facts" },
-        h("div", {}, h("dt", {}, iconEl("calendar"), "Event"), h("dd", {}, B.isMissing(m.event_period) ? "—" : m.event_period)),
-        h("div", {}, h("dt", {}, iconEl("coin"), "Budget"), h("dd", {}, B.isMissing(m.budget.amount) ? "—" : m.budget.amount))),
+        h("div", {}, h("dt", {}, iconEl("calendar"), "Event"), h("dd", {}, B.isMissing(m.event_period) ? "-" : m.event_period)),
+        h("div", {}, h("dt", {}, iconEl("coin"), "Budget"), h("dd", {}, B.isMissing(m.budget.amount) ? "-" : m.budget.amount))),
       (b.nextSteps || []).length ? h("div", { class: "bcard-steps" },
         b.nextSteps.slice(0, 3).map((t) => h("span", { class: "step-pill" }, t)),
         b.nextSteps.length > 3 ? h("span", { class: "step-pill more" }, `+${b.nextSteps.length - 3}`) : null) : null,
@@ -1095,7 +1099,7 @@
       grid.replaceChildren(h("div", { class: "empty" },
         h("div", { class: "empty-art", "aria-hidden": "true" }, iconEl("inbox")),
         h("h2", {}, "No briefs yet"),
-        h("p", {}, "Extract your first brief and save it — it'll show up here for the whole team."),
+        h("p", {}, "Extract your first brief and save it - it'll show up here for the whole team."),
         h("a", { class: "btn btn-primary", href: "#/" }, iconEl("sparkles"), " Extract a brief")));
       return;
     }
@@ -1211,6 +1215,10 @@
 
     wireSettings();
     document.addEventListener("bx:status", updateSetupNote);
+    document.addEventListener("bx:status", () => {
+      $("#blockNote").hidden = !BX.extract.warm.blocked;
+      try { $("#blockHost").textContent = new URL(cfg().GEMINI_PROXY_URL).host; } catch (_) { /* unset */ }
+    });
     document.addEventListener("bx:settings", updateSetupNote);
 
     // Wake both Render services and load the briefs list right away, so the

@@ -43,7 +43,7 @@
       return await res.json().catch(() => ({ code: res.status, msg: `HTTP ${res.status}` }));
     } catch (e) {
       throw new LarkError(e.name === "AbortError"
-        ? "Lark took too long to respond. The connection may be waking up — try again."
+        ? "Lark took too long to respond. The connection may be waking up - try again."
         : "Couldn't reach the Lark service. Check your connection and try again.", "network");
     } finally {
       clearTimeout(timer);
@@ -101,7 +101,7 @@
       [FIELD.client]: m.client_name,
       [FIELD.filed]: toMs(m.date_filed),
       [FIELD.due]: toMs(m.due_date.date),
-      [FIELD.period]: [m.event_period].concat(m.key_dates.map((k) => `• ${[k.date, k.label].filter(Boolean).join(" — ")}`)).join("\n"),
+      [FIELD.period]: [m.event_period].concat(m.key_dates.map((k) => `• ${[k.date, k.label].filter(Boolean).join(" - ")}`)).join("\n"),
       [FIELD.venue]: m.venue,
       [FIELD.objective]: lines(m.objectives),
       [FIELD.audience]: lines(m.target_audience),
@@ -163,8 +163,8 @@
         project_title: cellText(f[FIELD.title]), client_name: cellText(f[FIELD.client]),
         date_filed: fromMs(f[FIELD.filed]), due_date: { date: fromMs(f[FIELD.due]), note: "" },
         event_period: period, key_dates: keyDates.map((l) => {
-          const [date, ...rest] = l.replace(/^•\s*/, "").split(" — ");
-          return { date, label: rest.join(" — ") };
+          const [date, ...rest] = l.replace(/^•\s*/, "").split(" - ");
+          return { date, label: rest.join(" - ") };
         }),
         venue: cellText(f[FIELD.venue]), objectives: splitLines(f[FIELD.objective]),
         target_audience: splitLines(f[FIELD.audience]), kpis: splitLines(f[FIELD.kpis]),

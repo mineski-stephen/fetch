@@ -17,6 +17,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap">
+  <!-- Apply the saved theme (Settings → Appearance) before anything paints. -->
+  <script>try { var t = (JSON.parse(localStorage.getItem("bx.settings")) || {}).theme; if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}</script>
   <!-- Every page load fetches styles and scripts under a fresh URL, so a stale cached copy can never be used. -->
   <script>window.BX_BUILD = Date.now().toString(36); document.write('<link rel="stylesheet" href="styles.css?v=' + window.BX_BUILD + '">');</script>
 </head>
@@ -25,7 +27,7 @@
   <div class="bg" aria-hidden="true"></div>
 
   <header class="topbar">
-    <a class="brand" href="#/" aria-label="Fetch — new brief">
+    <a class="brand" href="#/" aria-label="Fetch - new brief">
       <img class="brand-mark" src="img/fetch-icon.svg?v=1.2.1" alt="" width="34" height="34">
       <span class="brand-name">Fetch</span>
     </a>
@@ -40,7 +42,7 @@
     <!-- 1. Compose ---------------------------------------------------------->
     <section class="view" data-view="compose" aria-label="New brief">
       <div class="hero">
-        <p class="lede">PDF, Word, PowerPoint, Excel, screenshots, e-mails — or just paste the text.</p>
+        <p class="lede">PDF, Word, PowerPoint, Excel, screenshots, e-mails - or just paste the text.</p>
       </div>
 
       <a class="setup-note" id="setupNote" href="#/settings/key" hidden>
@@ -48,6 +50,14 @@
         <span class="setup-text"><b>Setup needed:</b> <span id="setupText">add your Gemini API key to start extracting briefs.</span></span>
         <span class="setup-go">Open Settings <span class="i" data-icon="arrowRight" aria-hidden="true"></span></span>
       </a>
+
+      <div class="block-note" id="blockNote" hidden role="alert">
+        <span class="i" data-icon="alert" aria-hidden="true"></span>
+        <div>
+          <p><b>Fetch can't reach its extraction service.</b> An ad blocker or privacy extension is probably blocking it.</p>
+          <p>Allow <code id="blockHost">gemini-pdf-6wp4.onrender.com</code> in your blocker (or pause it on this page), then reload.</p>
+        </div>
+      </div>
 
       <div class="resume" id="resumeBanner" hidden>
         <span class="i" data-icon="clock" aria-hidden="true"></span>
@@ -131,7 +141,6 @@
       <div class="warn" id="warnBanner" hidden role="status"></div>
       <div class="result-grid">
         <div class="paper-wrap">
-          <p class="edit-hint"><span class="i" data-icon="pencil" aria-hidden="true"></span> Click any text to edit it — changes flow into the PDF, chat text and Lark.</p>
           <article class="paper" id="paper" aria-label="Project brief document"></article>
         </div>
         <aside class="side" aria-label="Actions">
@@ -151,7 +160,6 @@
               <span class="i" data-icon="sparkles" aria-hidden="true"></span>
               <h3 id="clsTitle">Requirement &amp; VAT</h3>
             </div>
-            <p class="extras-sub">Pre-selected by Gemini; click to change. Saved to Lark only.</p>
             <div class="cls-group">
               <span class="cls-label" id="reqLabel">Requirement type</span>
               <div class="ns-chips" id="reqChips" role="radiogroup" aria-labelledby="reqLabel"></div>
@@ -168,7 +176,6 @@
               <span class="i" data-icon="steps" aria-hidden="true"></span>
               <h3 id="nsTitle">Next steps</h3>
             </div>
-            <p class="extras-sub">Saved to Lark only, not in the document.</p>
             <div class="ns-chips" id="nsChips" role="group" aria-labelledby="nsTitle"></div>
             <form class="ns-add" id="nsAddForm">
               <input type="text" id="nsAddInput" placeholder="Add another step…" maxlength="60" aria-label="Add another next step">
@@ -180,7 +187,6 @@
               <span class="i" data-icon="file" aria-hidden="true"></span>
               <h3 id="attTitle">Attachments</h3>
             </div>
-            <p class="extras-sub">Files attached to the brief's row in Lark.</p>
             <ul class="att-list" id="attList"></ul>
             <button type="button" class="btn btn-sm" id="attAddBtn"><span class="i" data-icon="plus" aria-hidden="true"></span> Add files</button>
             <input type="file" id="attInput" multiple hidden>
@@ -260,6 +266,15 @@
           </div>
           <p class="set-result" id="keyResult" role="status"></p>
           <p class="set-help">Get a free key from <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a>. Your key stays in this browser and is sent only to Fetch's extraction service with each brief; it is never stored there. Fetch uses Gemini Flash-Lite, which free keys can use.</p>
+        </section>
+
+        <section class="card set-card" aria-labelledby="themeTitle">
+          <h2 id="themeTitle">Appearance</h2>
+          <div class="seg" id="themeSeg" role="radiogroup" aria-labelledby="themeTitle">
+            <button type="button" role="radio" data-theme-choice="system"><span class="i" data-icon="monitor" aria-hidden="true"></span> System</button>
+            <button type="button" role="radio" data-theme-choice="light"><span class="i" data-icon="sun" aria-hidden="true"></span> Light</button>
+            <button type="button" role="radio" data-theme-choice="dark"><span class="i" data-icon="moon" aria-hidden="true"></span> Dark</button>
+          </div>
         </section>
 
         <section class="card set-card" aria-labelledby="nameTitle">
