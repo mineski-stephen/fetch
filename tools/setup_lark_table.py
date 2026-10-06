@@ -64,6 +64,7 @@ FIELDS = [
     ("Requirement Type", SELECT, options("RFP (Request for Proposal)", "RFQ (Request for Quotation)",
                                          "RFI (Request for Information)")),
     ("VAT", MULTI_SELECT, options("VAT Inc.", "VAT Ex.")),
+    ("Done", SELECT, options("Yes", "No")),   # Yes = moved to the collapsed Done section in Fetch
     ("Last Modified", MODIFIED_TIME, {"date_formatter": "yyyy/MM/dd HH:mm"}),
 ]
 

@@ -78,7 +78,8 @@ No training needed: the landing page is one box that says "Upload your brief fil
 5. When the user clicks **Save to Lark Base** and confirms, the page calls
    the **Lark proxy**, which adds a row: readable columns plus a `Brief JSON` column.
 6. The **All briefs** view reads every row back, rebuilds each document from
-   its JSON, and lets anyone reopen, edit and **Save changes**.
+   its JSON, and lets anyone reopen, edit and **Save changes**. Briefs marked
+   **Done** move to a collapsed *Done* section; any brief can be deleted.
 
 ---
 
@@ -215,19 +216,21 @@ The columns were created by `tools/setup_lark_table.py`:
 | VAT | Multi-select (one value used) | **VAT Inc.** (prices include 12% VAT) or **VAT Ex.** (VAT-exclusive, or 0% for foreign / exempt clients). Gemini follows what the brief explicitly says first; if it says nothing, a local client means VAT Inc. and a foreign one VAT Ex. The pre-selected choice always agrees with the note shown under it. Labels: `VAT_CHOICES` in `config.js`. |
 | Next Steps | Multi-select | Picked in the **Next steps** card beside the document (AM Assignment, File Project Brief and trigger Lark GC, PM Assignment, Pitch Deck, Other, or a custom step, which Lark adds as a new option). Saved to Lark only, never part of the document, PDF or chat text. The default list is `NEXT_STEP_OPTIONS` in `config.js`. |
 | Attachments | Attachment | The uploaded brief files (plus typed text as `Brief text.txt`), uploaded on save through the Lark proxy (Drive media API, `drive:drive` scope). Files can be added or removed in the **Attachments** card. Limit per file: `LARK_ATTACH_MAX_MB` (10 MB, the Lark proxy's default `MAX_BODY_BYTES`; Lark allows up to 20 MB). Files from before a page reload must be re-added. |
+| Done | Single select | **Yes** or **No**. Set from the page (right-click a card, or its ⋯ button → *Mark as Done* / *Mark as Not Done*) or in Lark. **Yes** moves the brief out of the main list into the collapsed **Done** section (newest filed first). **No** or empty keeps it in the list. New rows start as **No**. |
 | **Brief JSON** | Text | **The source of truth the page renders from. Don't edit it by hand.** |
 | Last Modified | Modified time | Automatic. |
 
 **Where edits belong.** The page renders each brief from `Brief JSON`. Edit
 content **on the page** (click the document, then *Save changes to Lark*), which
 rewrites the JSON and every readable column together. In Lark itself, edit only
-**Status** and **Due Date**. Changes to other readable columns are overwritten
+**Status**, **Due Date** and **Done**. Changes to other readable columns are overwritten
 the next time someone saves that brief from the page. If a row's JSON is ever
 missing or broken, the page rebuilds the brief from the readable columns instead.
 
 **Permissions.** The Base uses Advanced Permissions. The Lark app used by the
 proxy (`cli_aab0716138b8ded3`) needs **Can edit** (add and edit records) on
-this table at runtime. Running the setup script again additionally needs
+this table at runtime, plus **delete records** for the page's *Delete* option
+(otherwise deleting fails with a permission error and nothing is removed). Running the setup script again additionally needs
 permission to manage fields.
 
 Re-running the setup is safe. It only creates what's missing:
@@ -340,6 +343,14 @@ variable (see `tech/lark-proxy/README.md`).
    **All briefs**, with your new brief highlighted.
 6. Later, open **All briefs**, search or sort by due date, click a card to
    reopen it, edit, and **Save changes to Lark**.
+7. When a brief is finished, right-click its card (or click ⋯) → **Mark as
+   Done**. It moves to the collapsed **Done** section under the list; open that
+   section and choose **Mark as Not Done** to bring it back. An **Undo** link
+   appears for a few seconds after either change.
+8. **Delete…** in the same menu removes the brief (row, attachments and all)
+   from Lark permanently. It asks twice: once with the brief's details, then
+   *Are you absolutely sure?*. There's no undo; mark it Done instead if you
+   might need it again.
 
 If you close the tab before saving, the page offers to **resume** your
 unsaved brief next time.
@@ -505,6 +516,7 @@ cd render/gemini-pdf && python -m unittest discover -s tests -v
 | Settings shows the extraction service as "Can't reach it (…)" | Fetch retries for ~3 minutes before saying this, and the reason is in brackets. Check the address under Settings → Advanced. Open https://gemini-pdf-6wp4.onrender.com/health in a browser: it should show `"status": "ok"`. |
 | "Setup needed" even though a shared key is set on Render | The service doesn't see the key. See [Deploying → 1](#1-deploy-the-gemini-proxy-render): check `shared_key` at the service's root URL, then save the variable with **Save, rebuild, and deploy**. |
 | "The app doesn't have permission to this Lark table" (`1254302`) | In the Base → Advanced Permissions, give the app's role **Can edit** on the table. |
+| Delete says the app has no permission | In the Base → Advanced Permissions, allow the app's role to **delete records** on the table. |
 | "The Lark table is missing a column" (`1254045`) | A column was renamed or deleted. Run `python tools/setup_lark_table.py --apply`. |
 | All briefs shows "Waking up the Lark connection…" | The Lark proxy is cold-starting (up to ~1 minute). |
 | A file is rejected | The message says why: e.g. an old `.doc`/`.ppt` (save as PDF), a ZIP (unzip it), or over 50 MB in total. |

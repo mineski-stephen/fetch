@@ -18,7 +18,7 @@
     submission: "Proposal Submission", submissionDetails: "Submission Details", notes: "Notes",
     questions: "Questions for Client", summary: "Summary", filedBy: "Filed By", sources: "Source Files",
     json: "Brief JSON", modified: "Last Modified", nextSteps: "Next Steps", attachments: "Attachments",
-    requirement: "Requirement Type", vat: "VAT",
+    requirement: "Requirement Type", vat: "VAT", done: "Done",
   };
   const AUTH_CODES = new Set([99991661, 99991663, 99991668, 99991677]);
   const FRIENDLY = {
@@ -121,6 +121,7 @@
     if ("sources" in extra) fields[FIELD.sources] = extra.sources || "";
     if ("status" in extra) fields[FIELD.status] = extra.status;
     if ("nextSteps" in extra) fields[FIELD.nextSteps] = extra.nextSteps;   // Lark-only, never in the document
+    if ("done" in extra) fields[FIELD.done] = extra.done ? "Yes" : "No";
     if ("requirement" in extra) {   // single select: "RFP (Request for Proposal)" etc.
       fields[FIELD.requirement] = cfg().REQUIREMENT_TYPES[extra.requirement]?.label || null;
     }
@@ -189,6 +190,7 @@
       sources: cellText(f[FIELD.sources]),
       nextSteps: (Array.isArray(f[FIELD.nextSteps]) ? f[FIELD.nextSteps] : f[FIELD.nextSteps] ? [f[FIELD.nextSteps]] : [])
         .map(cellText).filter(Boolean),
+      done: cellText(f[FIELD.done]).trim().toLowerCase() === "yes",   // "No" or empty = still active
       requirement: matchChoice(cfg().REQUIREMENT_TYPES, cellText(f[FIELD.requirement])),
       vat: matchChoice(cfg().VAT_CHOICES, [].concat(f[FIELD.vat] || []).map(cellText)[0] || ""),
       attachments: (Array.isArray(f[FIELD.attachments]) ? f[FIELD.attachments] : [])
@@ -223,7 +225,7 @@
 
   /** Create a row. clientToken makes retries idempotent (no duplicate rows). */
   async function create(model, extra, clientToken = uuid()) {
-    const fields = toFields(model, { status: "New", ...extra });
+    const fields = toFields(model, { status: "New", done: false, ...extra });
     if (fields[FIELD.due] == null) delete fields[FIELD.due];
     const data = await api(`/records?client_token=${clientToken}`, { fields });
     return fromRecord(data.record || { record_id: data.record_id, fields });
@@ -261,8 +263,18 @@
     return data.data.file_token;
   }
 
+  /** Set only the Done column (the brief's content is untouched). */
+  async function setDone(id, done) {
+    await api("/records/batch_update", { records: [{ record_id: id, fields: { [FIELD.done]: done ? "Yes" : "No" } }] });
+  }
+
+  /** Permanently delete a row (batch endpoint, since the proxy only forwards POST). */
+  async function remove(id) {
+    await api("/records/batch_delete", { records: [id] });
+  }
+
   /** Forget the cached token (e.g. after the proxy address changes in Settings). */
   const resetToken = () => { tokenCache = null; };
 
-  BX.lark = { FIELD, LarkError, token, resetToken, uploadFile, warmup, listAll, create, update, toFields, fromRecord, uuid };
+  BX.lark = { FIELD, LarkError, token, resetToken, uploadFile, setDone, remove, warmup, listAll, create, update, toFields, fromRecord, uuid };
 })((window.BX = window.BX || {}));

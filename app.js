@@ -1002,9 +1002,10 @@
 
   function cacheBriefs() {
     store.set("bx.briefsCache", S.briefs);
-    const count = $("#briefCount");
-    count.hidden = !S.briefs?.length;
-    count.textContent = S.briefs?.length || "";
+    const count = $("#briefCount");   // open briefs only; done ones sit in their own section
+    const open = (S.briefs || []).filter((b) => !b.done).length;
+    count.hidden = !open;
+    count.textContent = open || "";
   }
 
   function loadBriefs() {
@@ -1062,7 +1063,10 @@
     const m = b.model;
     const due = m.due_date.date ? B.dueBadge(m.due_date.date) : null;
     const tone = STATUS_TONE[(b.status || "").toLowerCase()] || "new";
-    return h("a", { class: `bcard${S.highlight === b.id ? " is-new" : ""}`, href: `#/briefs/${encodeURIComponent(b.id)}`, style: `--i:${Math.min(i, 12)}` },
+    return h("a", { class: `bcard${S.highlight === b.id ? " is-new" : ""}${b.done ? " is-done" : ""}`,
+      href: `#/briefs/${encodeURIComponent(b.id)}`, style: `--i:${Math.min(i, 12)}`, "data-id": b.id },
+      h("button", { type: "button", class: "bcard-menu", "aria-label": "More actions", "aria-haspopup": "menu", title: "More actions" },
+        iconEl("dots")),
       h("div", { class: "bcard-top" },
         h("span", { class: `status s-${tone}` }, b.status || "New"),
         due ? h("span", { class: `due-pill tone-${due.tone}` }, iconEl("clock"), `Due ${B.fmtDate(m.due_date.date)} · ${due.text}`)
@@ -1094,6 +1098,13 @@
       client: (a, b) => a.model.client_name.localeCompare(b.model.client_name),
     }[sort];
     list = list.map((b, i) => [b, i]).sort((x, y) => by(x[0], y[0]) || x[1] - y[1]).map(([b]) => b);
+    const done = list.filter((b) => b.done)
+      .sort((a, b) => (b.model.date_filed || "").localeCompare(a.model.date_filed || ""));   // newest filed first
+    list = list.filter((b) => !b.done);
+    const group = $("#doneGroup");
+    group.hidden = !done.length;
+    $("#doneCount").textContent = done.length || "";
+    $("#doneGrid").replaceChildren(...done.map(briefCard));
 
     if (!S.briefs.length) {
       grid.replaceChildren(h("div", { class: "empty" },
@@ -1104,7 +1115,8 @@
       return;
     }
     if (!list.length) {
-      grid.replaceChildren(h("div", { class: "empty small" }, h("p", {}, `No briefs match “${q}”.`)));
+      grid.replaceChildren(h("div", { class: "empty small" }, h("p", {},
+        q ? `No open briefs match “${q}”.` : "Every brief is marked as done. Nice work!")));
       return;
     }
     grid.replaceChildren(...list.map(briefCard));
@@ -1113,6 +1125,155 @@
       hl.scrollIntoView({ block: "center", behavior: reduceMotion() ? "auto" : "smooth" });
       setTimeout(() => { S.highlight = null; }, 4000);
     }
+  }
+
+  // ---- card actions: right-click or the ⋯ button ----------------------------------------
+  let ctx = null;
+
+  function closeMenu() {
+    if (!ctx) return;
+    ctx.el.remove();
+    ctx.anchor?.setAttribute("aria-expanded", "false");
+    ctx = null;
+  }
+
+  function openMenu(b, x, y, anchor) {
+    closeMenu();
+    const el = h("div", { class: "ctx-menu", role: "menu" },
+      h("button", { type: "button", role: "menuitem", "data-act": "open" }, iconEl("open"), "Open"),
+      h("button", { type: "button", role: "menuitem", "data-act": "done" },
+        iconEl(b.done ? "undoneCircle" : "doneCircle"), b.done ? "Mark as Not Done" : "Mark as Done"),
+      h("hr"),
+      h("button", { type: "button", role: "menuitem", class: "danger", "data-act": "delete" }, iconEl("trash"), "Delete…"));
+    document.body.append(el);
+    const r = el.getBoundingClientRect();
+    el.style.left = `${Math.max(8, Math.min(x, innerWidth - r.width - 8))}px`;
+    el.style.top = `${Math.max(8, Math.min(y, innerHeight - r.height - 8))}px`;
+    anchor?.setAttribute("aria-expanded", "true");
+    ctx = { el, b, anchor };
+    el.querySelector("button").focus();
+    el.addEventListener("click", (e) => {
+      const act = e.target.closest("[data-act]")?.dataset.act;
+      if (!act) return;
+      closeMenu();
+      if (act === "open") go(`#/briefs/${encodeURIComponent(b.id)}`);
+      if (act === "done") toggleDone(b);
+      if (act === "delete") openDeleteDialog(b);
+    });
+    el.addEventListener("keydown", (e) => {
+      const items = [...el.querySelectorAll("button")], i = items.indexOf(document.activeElement);
+      if (e.key === "ArrowDown") { e.preventDefault(); items[(i + 1) % items.length].focus(); }
+      if (e.key === "ArrowUp") { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
+      if (e.key === "Escape") { closeMenu(); anchor?.focus(); }
+    });
+  }
+
+  async function toggleDone(b, done = !b.done) {
+    b.done = done;   // update the list right away; undo if Lark refuses
+    cacheBriefs();
+    renderBriefs();
+    try {
+      await BX.lark.setDone(b.id, done);
+      toast(done ? `“${b.model.project_title}” moved to Done.` : `“${b.model.project_title}” is back in the list.`, {
+        type: "success", action: "Undo", onAction: () => toggleDone(b, !done),
+      });
+    } catch (err) {
+      b.done = !done;
+      cacheBriefs();
+      renderBriefs();
+      toast(err.message || "Couldn't update Lark.", { type: "error" });
+    }
+  }
+
+  function wireCardMenu() {
+    const lists = [$("#briefGrid"), $("#doneGrid")];
+    const briefFor = (card) => S.briefs?.find((x) => x.id === card?.dataset.id);
+    lists.forEach((list) => {
+      list.addEventListener("contextmenu", (e) => {
+        const b = briefFor(e.target.closest(".bcard[data-id]"));
+        if (!b) return;
+        e.preventDefault();
+        openMenu(b, e.clientX, e.clientY);
+      });
+      list.addEventListener("click", (e) => {
+        const btn = e.target.closest(".bcard-menu");
+        if (!btn) return;
+        e.preventDefault();   // the button sits inside the card's link
+        e.stopPropagation();
+        const b = briefFor(btn.closest(".bcard"));
+        if (ctx?.anchor === btn) return closeMenu();
+        const r = btn.getBoundingClientRect();
+        if (b) openMenu(b, r.right - 200, r.bottom + 6, btn);
+      });
+    });
+    document.addEventListener("pointerdown", (e) => { if (ctx && !ctx.el.contains(e.target) && e.target !== ctx.anchor) closeMenu(); }, true);
+    window.addEventListener("scroll", closeMenu, true);
+    window.addEventListener("resize", closeMenu);
+    window.addEventListener("hashchange", closeMenu);
+  }
+
+  // ---- permanent delete: two confirmations -------------------------------------------------
+  let del = null;
+
+  function paintDelete() {
+    const { b, stage } = del;
+    const title = b.model.project_title;
+    $("#delTitle").textContent = stage === 1 ? `Delete “${title}”?` : "Are you absolutely sure?";
+    $("#delText").textContent = stage === 1
+      ? "This removes the brief from the Lark Base for everyone, including its attachments, next steps and notes."
+      : `“${title}” will be permanently deleted from Lark. This cannot be undone.`;
+    $("#delSummary").hidden = stage !== 1;
+    $("#delConfirm .label").textContent = stage === 1 ? "Delete…" : "Yes, delete permanently";
+  }
+
+  function openDeleteDialog(b) {
+    del = { b, stage: 1 };
+    const m = b.model;
+    $("#delSummary").replaceChildren(...[["Project", m.project_title], ["Client", m.client_name],
+      ["Filed", `${B.fmtDate(m.date_filed)}${b.filedBy ? ` by ${b.filedBy}` : ""}`]]
+      .flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, v)]));
+    $("#delError").hidden = true;
+    $("#delConfirm").disabled = false;
+    paintDelete();
+    $("#deleteDialog").showModal();
+    $("#delCancel").focus();   // the safe choice has focus
+  }
+
+  async function confirmDelete() {
+    if (!del) return;
+    const btn = $("#delConfirm");
+    if (del.stage === 1) {
+      del.stage = 2;
+      paintDelete();
+      btn.disabled = true;   // a double-click can't skip the second confirmation
+      setTimeout(() => { btn.disabled = false; }, 900);
+      $("#delCancel").focus();
+      return;
+    }
+    const { b } = del;
+    busy(btn, true, "Deleting…");
+    try {
+      await BX.lark.remove(b.id);
+      busy(btn, false);
+      $("#deleteDialog").close();
+      S.briefs = S.briefs.filter((x) => x.id !== b.id);
+      delete S.edits[b.id];
+      cacheBriefs();
+      renderBriefs();
+      if (S.doc?.id === b.id) go("#/briefs");
+      toast(`Deleted “${b.model.project_title}”.`, { type: "success" });
+    } catch (err) {
+      busy(btn, false);
+      $("#delError").textContent = err.message || "Couldn't delete it from Lark.";
+      $("#delError").hidden = false;
+    }
+  }
+
+  function wireDelete() {
+    $("#deleteForm").addEventListener("submit", (e) => { e.preventDefault(); confirmDelete(); });
+    $("#delCancel").onclick = () => $("#deleteDialog").close();
+    $("#deleteDialog").addEventListener("close", () => { del = null; });
+    $("#deleteDialog").addEventListener("click", (e) => { if (e.target === e.currentTarget) e.currentTarget.close(); });
   }
 
   function showBriefs() {
@@ -1211,6 +1372,8 @@
     wireResult();
     wireExtras();
     wireBriefs();
+    wireCardMenu();
+    wireDelete();
     cacheBriefs();
 
     wireSettings();

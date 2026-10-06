@@ -236,6 +236,10 @@
       </div>
       <p class="briefs-status" id="briefsStatus" aria-live="polite"></p>
       <div class="grid" id="briefGrid"></div>
+      <details class="done-group" id="doneGroup" hidden>
+        <summary><span class="i" data-icon="doneCircle" aria-hidden="true"></span> Done <span class="done-count" id="doneCount"></span></summary>
+        <div class="grid" id="doneGrid"></div>
+      </details>
     </section>
     <!-- 5. Settings --------------------------------------------------------->
     <section class="view" data-view="settings" aria-labelledby="settingsTitle">
@@ -337,6 +341,20 @@
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost" value="cancel" id="saveCancel">Cancel</button>
         <button type="submit" class="btn btn-primary" id="saveConfirm"><span class="label">Save to Lark</span></button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="modal modal-danger" id="deleteDialog" aria-labelledby="delTitle">
+    <form method="dialog" id="deleteForm">
+      <div class="modal-icon" aria-hidden="true"><span class="i" data-icon="trash"></span></div>
+      <h2 id="delTitle">Delete this brief?</h2>
+      <p class="modal-sub" id="delText"></p>
+      <dl class="summary-list" id="delSummary"></dl>
+      <p class="form-error" id="delError" hidden role="alert"></p>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="delCancel">Cancel</button>
+        <button type="submit" class="btn btn-danger" id="delConfirm"><span class="label">Delete</span></button>
       </div>
     </form>
   </dialog>
