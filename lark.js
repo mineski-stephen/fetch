@@ -80,7 +80,8 @@
   }
 
   function warmup() {
-    return fetch(`${cfg().LARK_PROXY_URL}/health`, { cache: "no-store" }).then(() => true, () => false);
+    // Root URL, not /health: ad-block lists block "||onrender.com/health" in browsers.
+    return fetch(`${cfg().LARK_PROXY_URL}/`, { cache: "no-store" }).then(() => true, () => false);
   }
 
   // ---- model <-> row ----------------------------------------------------------

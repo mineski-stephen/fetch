@@ -21,19 +21,21 @@
   const emit = () => document.dispatchEvent(new Event("bx:status"));
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-  /** One GET /health. Anything but the service's JSON (e.g. Render's HTML
+  /** One check of the service's root URL. (Not /health: uBlock Origin's filter lists block
+   *  "||onrender.com/health" in browsers. Render's own health check still uses /health.)
+   *  Anything but the service's JSON (e.g. Render's HTML
    *  "starting up" page or a 502 during a deploy) counts as "not ready yet". */
   function ping(timeoutMs) {
     const started = Date.now();
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), timeoutMs);
-    return fetch(`${cfg().GEMINI_PROXY_URL}/health`, { cache: "no-store", signal: ctl.signal })
+    return fetch(`${cfg().GEMINI_PROXY_URL}/`, { cache: "no-store", signal: ctl.signal })
       .then(async (r) => {
         const type = r.headers.get("content-type") || "";
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         if (!type.includes("json")) throw new Error("the service is still starting");
         const d = await r.json();
-        if (d.status !== "ok") throw new Error("unexpected health response");
+        if (d.service !== "gemini-brief-proxy" && d.status !== "ok") throw new Error("unexpected response (wrong address?)");
         Object.assign(warm, { state: "warm", configured: !!d.configured, at: Date.now(), error: "", blocked: false, fastFails: 0 });
         return true;
       })
