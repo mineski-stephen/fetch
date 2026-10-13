@@ -1,8 +1,9 @@
 /*
- * Lark Base client. All calls go through the Lark CORS proxy:
- *   GET  {proxy}/token                  -> tenant access token (proxy holds the app secret)
- *   POST {proxy}/proxy?url=<lark api>   -> forwarded with our Bearer token
- * The proxy forwards POST only, so updates use records/batch_update.
+ * Lark Base client. Every call runs as the signed-in person (their
+ * user_access_token from auth.js), so Lark applies their own permissions on the
+ * Base. Calls go through the Lark CORS proxy:
+ *   POST {proxy}/proxy?url=<lark api>   -> forwarded with the user's Bearer token
+ * Writes use POST endpoints only (records/batch_update, records/batch_delete).
  *
  * Column names must match tools/setup_lark_table.py.
  */
@@ -20,16 +21,16 @@
     json: "Brief JSON", modified: "Last Modified", nextSteps: "Next Steps", attachments: "Attachments",
     requirement: "Requirement Type", vat: "VAT", done: "Done",
   };
-  const AUTH_CODES = new Set([99991661, 99991663, 99991668, 99991677]);
+  const AUTH_CODES = new Set([20005, 99991661, 99991663, 99991668, 99991677]);
   const FRIENDLY = {
-    1254302: "The app doesn't have permission to this Lark table. Ask the Base admin to check its Advanced Permissions.",
-    91403: "The app doesn't have access to this Lark Base. Ask the Base admin to add it as a collaborator.",
+    1254302: "Your Lark account doesn't have permission to do this in the briefs table. Ask the Base admin for edit access.",
+    91403: "Your Lark account can't open the briefs Base. Ask its owner to share it with you (edit access).",
+    99991679: "Your login is missing a permission Fetch needs. Log out, then log in again.",
+    1254043: "That brief no longer exists in Lark. Refresh the list.",
     1254045: "The Lark table is missing a column. Run tools/setup_lark_table.py --apply to repair it.",
     1254290: "Lark is rate-limiting requests. Wait a few seconds and try again.",
     1254291: "Someone else is editing this row right now. Try again in a moment.",
   };
-
-  let tokenCache = null;
 
   class LarkError extends Error {
     constructor(message, code) { super(message); this.code = code; }
@@ -55,26 +56,30 @@
     throw new LarkError(FRIENDLY[code] || `Lark error ${code}: ${data?.msg || "unknown"}`, code);
   }
 
-  async function token(force = false) {
-    if (!force && tokenCache && tokenCache.exp > Date.now()) return tokenCache.value;
-    const data = await fetchJSON(`${cfg().LARK_PROXY_URL}/token`);
-    const value = data.tenant_access_token || data.app_access_token;
-    if (data.code !== 0 || !value) fail(data);
-    tokenCache = { value, exp: Date.now() + Math.max(60, (data.expire || 7200) - 300) * 1000 };
+  /** The signed-in user's token; if the login has ended, the app shows the login screen. */
+  function token() {
+    const value = BX.auth.token();
+    if (!value) {
+      BX.auth.ended();
+      throw new LarkError("Your Lark login has ended. Log in again.", "auth");
+    }
     return value;
   }
 
-  async function api(path, body, retried = false) {
+  function checkAuth(data) {
+    if (!AUTH_CODES.has(data?.code)) return;
+    BX.auth.ended();
+    throw new LarkError("Your Lark login has ended. Log in again.", "auth");
+  }
+
+  async function api(path, body) {
     const target = `${cfg().LARK_API_BASE}/bitable/v1/apps/${cfg().LARK_APP_TOKEN}/tables/${cfg().LARK_TABLE_ID}${path}`;
     const data = await fetchJSON(`${cfg().LARK_PROXY_URL}/proxy?url=${encodeURIComponent(target)}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json; charset=utf-8", Authorization: `Bearer ${await token()}` },
+      headers: { "Content-Type": "application/json; charset=utf-8", Authorization: `Bearer ${token()}` },
       body: JSON.stringify(body || {}),
     });
-    if (AUTH_CODES.has(data.code) && !retried) {
-      tokenCache = null;
-      return api(path, body, true);
-    }
+    checkAuth(data);
     if (data.code !== 0) fail(data);
     return data.data || {};
   }
@@ -238,7 +243,7 @@
   }
 
   /** Upload one file into the Base (Drive "media" API) and return its file_token. */
-  async function uploadFile(file, retried = false) {
+  async function uploadFile(file) {
     const form = new FormData();
     form.append("file_name", file.name);
     form.append("parent_type", "bitable_file");
@@ -249,13 +254,10 @@
     const target = `${cfg().LARK_API_BASE}/drive/v1/medias/upload_all`;
     const data = await fetchJSON(`${cfg().LARK_PROXY_URL}/proxy?url=${encodeURIComponent(target)}`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${await token()}` },   // the browser sets the multipart boundary
+      headers: { Authorization: `Bearer ${token()}` },   // the browser sets the multipart boundary
       body: form,
     }, 180000);
-    if (AUTH_CODES.has(data.code) && !retried) {
-      tokenCache = null;
-      return uploadFile(file, true);
-    }
+    checkAuth(data);
     if (data.code === 413 || /too large/i.test(data.error || data.msg || "")) {
       throw new LarkError(`“${file.name}” is too large for the Lark connection.`, 413);
     }
@@ -270,11 +272,15 @@
 
   /** Permanently delete a row (batch endpoint, since the proxy only forwards POST). */
   async function remove(id) {
-    await api("/records/batch_delete", { records: [id] });
+    try {
+      await api("/records/batch_delete", { records: [id] });
+    } catch (err) {
+      if (err.code === 1254302 || err.code === 91403) {
+        throw new LarkError("Your Lark account isn't allowed to delete rows in the briefs table. Ask the Base admin, or mark it Done instead.", err.code);
+      }
+      throw err;
+    }
   }
 
-  /** Forget the cached token (e.g. after the proxy address changes in Settings). */
-  const resetToken = () => { tokenCache = null; };
-
-  BX.lark = { FIELD, LarkError, token, resetToken, uploadFile, setDone, remove, warmup, listAll, create, update, toFields, fromRecord, uuid };
+  BX.lark = { FIELD, LarkError, uploadFile, setDone, remove, warmup, listAll, create, update, toFields, fromRecord, uuid };
 })((window.BX = window.BX || {}));

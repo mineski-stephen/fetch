@@ -31,14 +31,41 @@
       <img class="brand-mark" src="img/fetch-icon.svg?v=1.2.1" alt="" width="34" height="34">
       <span class="brand-name">Fetch</span>
     </a>
-    <nav class="nav" aria-label="Main">
-      <a href="#/" data-nav="compose">New brief</a>
-      <a href="#/briefs" data-nav="briefs">All briefs <span class="count" id="briefCount" hidden></span></a>
-      <a href="#/settings" data-nav="settings" class="nav-icon" aria-label="Settings" title="Settings"><span class="i" data-icon="gear" aria-hidden="true"></span></a>
-    </nav>
+    <div class="top-right">
+      <nav class="nav" aria-label="Main">
+        <a href="#/" data-nav="compose" class="needs-login">New brief</a>
+        <a href="#/briefs" data-nav="briefs" class="needs-login">All briefs <span class="count" id="briefCount" hidden></span></a>
+        <a href="#/settings" data-nav="settings" class="nav-icon" aria-label="Settings" title="Settings"><span class="i" data-icon="gear" aria-hidden="true"></span></a>
+      </nav>
+      <a class="session-pill needs-login" id="sessionPill" href="#/settings">
+        <span class="i" data-icon="clock" aria-hidden="true"></span><span id="sessionLeft"></span>
+      </a>
+      <a class="me needs-login" id="meLink" href="#/settings" aria-label="Your account">
+        <img class="avatar" id="avatar" alt="" referrerpolicy="no-referrer" hidden>
+        <span class="avatar avatar-initials" id="initials" aria-hidden="true"></span>
+      </a>
+    </div>
   </header>
 
   <main id="app" tabindex="-1">
+    <!-- 0. Logged out --------------------------------------------------------->
+    <section class="view view-login" data-view="login" aria-labelledby="loginTitle">
+      <div class="login-card">
+        <img class="login-mark" src="img/fetch-icon.svg?v=1.2.1" alt="" width="88" height="88">
+        <h1 id="loginTitle">Fetch</h1>
+        <p class="lede">Turn client briefs into a project brief summary, saved to Lark.</p>
+        <button type="button" class="btn btn-primary btn-lg" id="loginBtn"><span class="label">Log in with Lark</span></button>
+        <p class="hint">For people with access to the team's briefs in Lark. You'll stay logged in for about 2 hours.</p>
+        <div class="callout callout-warn" id="loginMsg" role="status" hidden></div>
+        <div class="callout callout-err" id="redirectMsg" hidden></div>
+      </div>
+    </section>
+
+    <section class="view view-busy" data-view="busy" aria-label="Logging in">
+      <span class="spinner" aria-hidden="true"></span>
+      <p>Logging you in…</p>
+    </section>
+
     <!-- 1. Compose ---------------------------------------------------------->
     <section class="view" data-view="compose" aria-label="New brief">
       <div class="hero">
@@ -248,6 +275,11 @@
         <p class="lede sm">Saved in this browser only.</p>
       </div>
       <div class="settings">
+        <section class="card set-card" aria-labelledby="accountTitle">
+          <h2 id="accountTitle">Account</h2>
+          <div class="account" id="account"></div>
+        </section>
+
         <section class="card set-card" aria-labelledby="keyTitle">
           <div class="set-head">
             <div>
@@ -281,15 +313,6 @@
           </div>
         </section>
 
-        <section class="card set-card" aria-labelledby="nameTitle">
-          <h2 id="nameTitle">Your name</h2>
-          <p class="set-sub">Shown as "Filed by" on the briefs you save.</p>
-          <span class="input-row">
-            <input type="text" id="setName" placeholder="e.g. Stephen" autocomplete="name" maxlength="80" aria-labelledby="nameTitle">
-            <button type="button" class="btn" id="saveName">Save</button>
-          </span>
-          <p class="set-result" id="nameResult" role="status"></p>
-        </section>
 
         <section class="card set-card" aria-labelledby="connTitle">
           <h2 id="connTitle">Connections</h2>
@@ -305,7 +328,7 @@
               <button type="button" class="btn btn-sm" id="refreshLark">Refresh</button>
             </li>
           </ul>
-          <details class="advanced">
+          <details class="advanced" id="advancedBox">
             <summary>Advanced: service addresses</summary>
             <label class="field"><span>Extraction service URL</span><input type="url" id="setGeminiUrl" spellcheck="false"></label>
             <label class="field"><span>Lark proxy URL</span><input type="url" id="setLarkUrl" spellcheck="false"></label>
@@ -320,7 +343,7 @@
 
         <section class="card set-card" aria-labelledby="localTitle">
           <h2 id="localTitle">This browser</h2>
-          <p class="set-sub">Clear the unsaved draft and the cached list of briefs. Your key and name are kept.</p>
+          <p class="set-sub">Clear the unsaved draft and the cached list of briefs. Your key and login are kept.</p>
           <div class="row"><button type="button" class="btn btn-ghost" id="clearLocal">Clear local data</button></div>
         </section>
       </div>
@@ -333,10 +356,6 @@
       <h2 id="saveTitle">Save this brief to Lark?</h2>
       <p class="modal-sub" id="saveSub">It'll be added as a new row in the team's briefs table.</p>
       <dl class="summary-list" id="saveSummary"></dl>
-      <label class="field">
-        <span>Filed by <em>(optional)</em></span>
-        <input type="text" id="filedBy" placeholder="Your name" autocomplete="name" maxlength="80">
-      </label>
       <p class="form-error" id="saveError" hidden role="alert"></p>
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost" value="cancel" id="saveCancel">Cancel</button>
@@ -363,7 +382,7 @@
 
   <script>
     // Load the app's scripts in order, each under a fresh URL (see BX_BUILD above).
-    ["config.js", "settings.js", "icons.js", "brief.js", "doc.js", "pdf.js", "lark.js", "extract.js", "app.js"]
+    ["config.js", "settings.js", "auth.js", "icons.js", "brief.js", "doc.js", "pdf.js", "lark.js", "extract.js", "app.js"]
       .forEach(function (src) {
         var s = document.createElement("script");
         s.src = src + "?v=" + window.BX_BUILD;

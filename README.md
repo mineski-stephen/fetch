@@ -15,13 +15,16 @@ screenshot of a chat, an e-mail, or just pasted text) and gets back:
 - a **history of every brief** the team has filed, searchable and sortable
   by due date.
 
-No training needed: the landing page is one box that says "Upload your brief files".
+No training needed: log in with Lark, and the landing page is one box that says
+"Upload your brief files". Only people who can open the team's briefs table in
+Lark can use Fetch.
 
 ---
 
 ## Contents
 
 - [How it works](#how-it-works)
+- [Lark login](#lark-login)
 - [Repository layout](#repository-layout)
 - [What gets extracted](#what-gets-extracted)
 - [The Lark table](#the-lark-table)
@@ -44,13 +47,13 @@ No training needed: the landing page is one box that says "Upload your brief fil
                     │  index.html — static page (no build step)   │
                     │  drop files / type ▸ loader ▸ editable doc   │
                     └───────┬───────────────────────────┬──────────┘
-        ① multipart POST    │                           │  ⑤ GET /token
-          /extract          │                           │    POST /proxy?url=…records
+        ① multipart POST    │                           │  ⑤ POST /proxy?url=…records
+          /extract + login  │                           │    (as the signed-in user)
                             ▼                           ▼
   ┌─────────────────────────────────┐      ┌────────────────────────────────┐
   │ render/gemini-pdf  (Render)     │      │ Lark CORS proxy  (Render)      │
   │ gemini-pdf-6wp4.onrender.com  │      │ tech/lark-proxy                │
-  │ · shared key or user's own key  │      │ · holds Lark app credentials   │
+  │ · checks the Lark login         │      │ · adds the app secret at login │
   │ · converts Office/e-mail → text │      │ · lark-proxy-dwiw.onrender.com │
   │ · fixed prompt + JSON schema    │      └───────────────┬────────────────┘
   │ · Flash-Lite, retries, fallback │                      │
@@ -61,13 +64,15 @@ No training needed: the landing page is one box that says "Upload your brief fil
           ③ structured JSON                     table tblG3XcLw2auB4lM
 ```
 
-0. As soon as the page opens it **wakes both Render services** (free instances
-   sleep when idle) and **loads the briefs list** from Lark in the background.
+0. The user **logs in with Lark** (see [Lark login](#lark-login)). As soon as
+   the page opens it **wakes both Render services** (free instances sleep when
+   idle), and once logged in it **loads the briefs list** from Lark in the background.
 1. The user drops files and/or types the brief. The page converts odd image
    formats, shrinks huge screenshots, and uploads everything to the **Gemini
-   proxy** with real upload progress. If the proxy is still waking up, the
-   loader says so and waits for it first.
-2. The proxy detects each file's real type, converts what Gemini can't read
+   proxy** with real upload progress, together with the user's Lark login. If
+   the proxy is still waking up, the loader says so and waits for it first.
+2. The proxy checks the login with Lark (is this person allowed to see the
+   briefs table?), detects each file's real type, converts what Gemini can't read
    natively (DOCX, PPTX, XLSX, e-mails…) to text, and calls **Gemini
    Flash-Lite** with a **fixed prompt and a strict JSON schema**. It uses the
    service's shared key, or the user's own key from Settings if they added one.
@@ -75,11 +80,65 @@ No training needed: the landing page is one box that says "Upload your brief fil
 4. The page renders it as an **editable document** (following
    `project-brief-template.md`), generates the **chat message**, and can
    produce a **PDF**. Every edit updates one JSON model that feeds all outputs.
-5. When the user clicks **Save to Lark Base** and confirms, the page calls
-   the **Lark proxy**, which adds a row: readable columns plus a `Brief JSON` column.
+5. When the user clicks **Save to Lark Base** and confirms, the page adds a
+   row through the **Lark proxy**, as the signed-in user: readable columns plus
+   a `Brief JSON` column, with *Filed by* set to their Lark name.
 6. The **All briefs** view reads every row back, rebuilds each document from
    its JSON, and lets anyone reopen, edit and **Save changes**. Briefs marked
    **Done** move to a collapsed *Done* section; any brief can be deleted.
+
+---
+
+## Lark login
+
+Fetch works the same way as Polaris (`tech/universe-updater`): people log in
+with their own Lark account, and every Lark call runs **as that person**
+(a `user_access_token`), not as the app.
+
+```
+ Log in with Lark ─▶ accounts.larksuite.com/…/authorize  (PKCE challenge + state)
+                  ◀─ back to Fetch with ?code=…&state=…
+ POST {lark proxy}/proxy?url=…/authen/v2/oauth/token   {code, code_verifier}   (no secret)
+      the proxy adds the app secret ─▶ Lark ─▶ { access_token, expires_in: ~2 h }
+ Every Lark call:            Authorization: Bearer <user token>  (through the Lark proxy)
+ Every brief sent to Gemini: Authorization: Bearer <user token>  (the service checks it)
+```
+
+**Who can use Fetch.** Exactly the people who can open the briefs table in
+Lark. Lark applies each user's own permissions, so:
+
+- the **page** can only read, add, edit or delete what that person could in
+  Lark itself (they need **edit** access to the table, plus permission to
+  delete records for *Delete*);
+- the **extraction service** asks Lark, with the same token, who the person
+  is and whether they can open the briefs table, and refuses the brief
+  otherwise (`401 login_required` / `login_expired`, `403 not_authorized`).
+  A login token from another Lark app or company doesn't get through, and
+  removing someone from the Base locks them out of extraction within 5 minutes.
+
+**How long a login lasts.** About 2 hours (Lark gives no refresh token). The
+top bar shows the time left, turning amber in the last 10 minutes, and a
+reminder appears 5 minutes before the end. Fetch won't start an extraction
+with under 2 minutes left, or a save with under 1 minute. When a login ends,
+the login screen appears and returns to the same page afterwards. The unsaved
+draft and typed text are kept; files picked for upload have to be added again.
+
+**Where the token lives.** In `sessionStorage`: this tab only, gone when the
+tab closes, never in a URL. A new tab means logging in again (one click if
+you're already signed in to Lark). *Log out* (Settings → Account) forgets the
+token and the cached briefs list; you stay logged in to Lark itself.
+
+**One-time setup on the Lark app** (`cli_aab0716138b8ded3`, the same app as
+Polaris, in the [Lark Developer Console](https://open.larksuite.com/app)):
+
+| Setting | Value |
+| ------- | ----- |
+| *Security Settings → Redirect URLs* | Every address Fetch is opened from, exactly, with the trailing slash: `http://localhost:8770/` for local testing, and the GitHub Pages address, e.g. `https://<user>.github.io/<repo>/`. The login screen checks its own address on load and says if it isn't registered (Lark error 20029). |
+| *Permissions & Scopes* | `bitable:app` enabled for **user identity** (already on for Polaris). |
+| *Availability* | Everyone who should use Fetch (otherwise error 20010 at login). |
+
+The Lark proxy needs its user-login support (forwarding GET, and adding the
+app secret on `/authen/v2/oauth/token`). The hosted one has it.
 
 ---
 
@@ -91,11 +150,12 @@ project-brief/                     ← the repository root = the website root
 ├── config.js                      ★ Defaults for everyone (service URLs, Lark table, Next Steps list)
 ├── styles.css                     Design tokens, light/dark themes, motion, responsive layout
 ├── app.js                         Routing and screens (incl. Next steps & Attachments cards)
-├── settings.js                    Per-browser settings (Gemini key, name, addresses) + Settings screen
+├── settings.js                    Per-browser settings (Gemini key, theme, local overrides) + Settings screen
+├── auth.js                        Lark login (OAuth + PKCE), the session and its clock
 ├── brief.js                       Brief model: normalise, dates, Markdown, chat text
 ├── doc.js                         Editable document renderer (click-to-edit)
 ├── pdf.js                         PDF export (pdfmake, lazy-loaded from cdnjs)
-├── lark.js                        Lark Base client: rows, column mapping, file uploads
+├── lark.js                        Lark Base client (as the signed-in user): rows, column mapping, file uploads
 ├── extract.js                     Talking to the Gemini proxy: wake-up, upload, wait estimate
 ├── icons.js                       Inline SVG icons
 ├── manifest.webmanifest           App name + icons for "Add to Home Screen"
@@ -227,11 +287,13 @@ rewrites the JSON and every readable column together. In Lark itself, edit only
 the next time someone saves that brief from the page. If a row's JSON is ever
 missing or broken, the page rebuilds the brief from the readable columns instead.
 
-**Permissions.** The Base uses Advanced Permissions. The Lark app used by the
-proxy (`cli_aab0716138b8ded3`) needs **Can edit** (add and edit records) on
-this table at runtime, plus **delete records** for the page's *Delete* option
-(otherwise deleting fails with a permission error and nothing is removed). Running the setup script again additionally needs
-permission to manage fields.
+**Permissions.** Fetch acts as the signed-in person, so each user needs
+**edit** access to this table in Lark (add and edit records), plus permission
+to **delete records** for the page's *Delete* option (otherwise deleting fails
+with a permission error and nothing is removed). People who can't open the
+table can't use Fetch at all. The setup script still runs as the app
+(`cli_aab0716138b8ded3`, through the proxy's `/token`) and needs permission to
+manage fields.
 
 Re-running the setup is safe. It only creates what's missing:
 
@@ -279,12 +341,16 @@ GEMINI_PROXY_URL: "https://gemini-pdf-6wp4.onrender.com",
 LARK_PROXY_URL:   "https://lark-proxy-dwiw.onrender.com",
 ```
 
-These are the defaults for everyone. A user can override them for their own
-browser under **Settings → Advanced**. There is no cache to bust after an
+These are the same for everyone. **Settings → Advanced** (local copies only,
+on `localhost`) can point a developer's browser elsewhere; a hosted page always
+uses these, because the Lark proxy receives people's login tokens. There is no cache to bust after an
 update: the page loads its styles and scripts under a fresh URL every time it
 opens (`BX_BUILD` in `index.html`), so users always get the latest files.
 
 ### 3. Host the page (GitHub Pages)
+
+Before the first login from the new address, add it to the Lark app's
+**Redirect URLs** (see [Lark login](#lark-login)).
 
 The website is the files in the project root: `index.html`, the `.js` files,
 `styles.css`, `manifest.webmanifest`, `.nojekyll` and `img/`. They're plain
@@ -323,10 +389,10 @@ variable (see `tech/lark-proxy/README.md`).
 
 ## Using it (for the BD team)
 
-0. **First time only:** if a yellow *Setup needed* bar appears, click it and
-   paste your Gemini API key in **Settings** (free from
-   [Google AI Studio](https://aistudio.google.com/apikey)), then add your
-   name so it shows as *Filed by*.
+0. **Log in with Lark** and approve on Lark's page. Your Lark name is used as
+   *Filed by*. If a yellow *Setup needed* bar appears, click it and paste your
+   Gemini API key in **Settings** (free from
+   [Google AI Studio](https://aistudio.google.com/apikey)).
 1. Open Fetch. **Upload** the brief files (drop them on the box or click
    *Upload your brief files*), **paste** a screenshot with Ctrl+V, and/or
    **type or paste** the brief text. Several files at once is fine: they're
@@ -365,11 +431,11 @@ the current browser only.
 | Setting | What it does |
 | ------- | ------------ |
 | **Gemini API key** | Your own key from [Google AI Studio](https://aistudio.google.com/apikey). It's sent to the extraction service with each brief (`X-Gemini-Api-Key` header), used once, and never stored there. **Required** when the service has no shared key; the status pill shows *Key needed*, *Using the shared key* or *Using your key*. **Save key** also checks it with Google and shows which Flash-Lite model you'll get; **Test key** re-checks it. |
+| **Account** | Your Lark name and picture, how long the login has left, **Log in again** (a fresh 2 hours) and **Log out**. Settings is the one screen that opens without logging in. |
 | **Appearance** | System (follows the computer), Light or Dark. Saved per browser and applied before the page draws, so there's no flash. |
-| **Your name** | Pre-fills *Filed by* when you save a brief. |
 | **Connections** | Live status of the extraction service (*Awake* / *Waking up…* / *Unreachable*) and Lark (*Connected · N briefs*), with **Wake up** and **Refresh** buttons. |
-| **Advanced: service addresses** | Override the extraction service URL, the Lark proxy URL, or the Lark table (paste the table's link). Empty = the defaults in `config.js`. |
-| **This browser** | Clears the unsaved draft and the cached briefs list (keeps your key and name). |
+| **Advanced: service addresses** | Only on `localhost`. Override the extraction service URL, the Lark proxy URL, or the Lark table (paste the table's link). Empty = the defaults in `config.js`. |
+| **This browser** | Clears the unsaved draft and the cached briefs list (keeps your key and login). |
 
 The *Setup needed* bar on the landing page, and any key-related error in the
 loader, link straight to the key field (`#/settings/key`).
@@ -388,7 +454,9 @@ cd ../..
 python tools/serve_web.py          # serves the page on :8770 with caching disabled
 ```
 
-Open `http://localhost:8770/?gemini=http://localhost:8000`. The `?gemini=` and
+Open `http://localhost:8770/?gemini=http://localhost:8000` and log in
+(`http://localhost:8770/` must be a Redirect URL on the Lark app). A local
+proxy checks logins too; run it with `REQUIRE_LARK_LOGIN=false` to skip that. The `?gemini=` and
 `?lark=` overrides are remembered for the tab session (`?reset` clears them),
 and they **only accept localhost URLs**, so a shared link can't redirect
 uploads elsewhere. `.claude/launch.json` defines the same static server for
@@ -471,14 +539,23 @@ cd render/gemini-pdf && python -m unittest discover -s tests -v
   the **free tier, Google may use API inputs to improve its products**; use a
   **paid** Gemini key for confidential client briefs. Nothing is stored by the
   Gemini proxy, and uploaded Files-API copies are deleted after each request.
-- **Access**: the page has no login of its own. Anyone who can open it can
-  read the history (it shows what the Lark app can read) and add briefs. Host
-  it somewhere internal, or behind your SSO or IP rules, if that matters.
-- **Lark proxy**: the existing proxy can mint tokens for the app and forwards
-  to any Lark API path. Treat its URL as internal and set its `ALLOWED_ORIGIN`
-  (see `tech/lark-proxy/README.md`).
-- **Abuse limits** on the Gemini proxy: an origin allow-list, a per-IP hourly
-  rate limit, a concurrency cap and an upload cap.
+- **Access**: everything except Settings needs a Lark login, and Lark
+  enforces each person's own permissions on the Base. The extraction service
+  checks the login itself, so the shared Gemini key can't be used by someone
+  who merely finds its URL. See [Lark login](#lark-login).
+- **Login tokens** stay in the tab's `sessionStorage` and are sent only to
+  the Lark proxy and the extraction service, both over HTTPS. PKCE and the
+  `state` check protect the login callback, and `?code=` is removed from the
+  address bar immediately. Service-address overrides only work on `localhost`,
+  so a hosted page can't be pointed at a proxy that collects tokens.
+- **Lark proxy**: its `GET /token` endpoint still hands out an **app** token
+  to anyone who asks (Fetch no longer uses it; `tools/setup_lark_table.py`
+  does). That token can read and write the Base without any login, so it's
+  the remaining way around Fetch's login. Disable or protect `/token` on the
+  proxy once nothing else needs it, and set its `ALLOWED_ORIGIN` (see
+  `tech/lark-proxy/README.md`).
+- **Abuse limits** on the Gemini proxy: the login check, an origin
+  allow-list, a per-user hourly rate limit, a concurrency cap and an upload cap.
 
 ---
 
@@ -515,8 +592,14 @@ cd render/gemini-pdf && python -m unittest discover -s tests -v
 | "Waking up the extraction service…" | Render cold start (up to a minute after ~15 idle minutes). Normal; it continues by itself. |
 | Settings shows the extraction service as "Can't reach it (…)" | Fetch retries for ~3 minutes before saying this, and the reason is in brackets. Check the address under Settings → Advanced. Open https://gemini-pdf-6wp4.onrender.com/health in a browser: it should show `"status": "ok"`. |
 | "Setup needed" even though a shared key is set on Render | The service doesn't see the key. See [Deploying → 1](#1-deploy-the-gemini-proxy-render): check `shared_key` at the service's root URL, then save the variable with **Save, rebuild, and deploy**. |
-| "The app doesn't have permission to this Lark table" (`1254302`) | In the Base → Advanced Permissions, give the app's role **Can edit** on the table. |
-| Delete says the app has no permission | In the Base → Advanced Permissions, allow the app's role to **delete records** on the table. |
+| Login screen: "This address … isn't registered on the Lark app" | Add exactly that address (with the trailing `/`) under *Security Settings → Redirect URLs* on the Lark app, then reload. |
+| Lark's page shows error **20029** after clicking *Log in* | Same: the address isn't a registered Redirect URL. |
+| "Your Lark account isn't allowed to use this app yet" (20010) | Add the person to the Lark app's availability range (*Version Management & Release → Availability*). |
+| "That login started in another tab" / "login check failed" | Log in again from the tab you're using. |
+| "Your account doesn't have access" when extracting (`not_authorized`) | The person can't open the briefs table in Lark. Share the Base with them (edit access), then they log in again. |
+| "Your Lark login has ended" | Logins last about 2 hours. Log in again; the draft and typed text are kept. |
+| "Your Lark account doesn't have permission…" (`1254302`) or "can't open the briefs Base" (`91403`) | Give the person edit access to the briefs table in Lark. |
+| Delete says your account isn't allowed to delete rows | Give the person permission to delete records on the table (or mark the brief Done instead). |
 | "The Lark table is missing a column" (`1254045`) | A column was renamed or deleted. Run `python tools/setup_lark_table.py --apply`. |
 | All briefs shows "Waking up the Lark connection…" | The Lark proxy is cold-starting (up to ~1 minute). |
 | A file is rejected | The message says why: e.g. an old `.doc`/`.ppt` (save as PDF), a ZIP (unzip it), or over 50 MB in total. |

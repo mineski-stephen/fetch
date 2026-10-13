@@ -6,7 +6,10 @@
  *   #/result        the freshly extracted, unsaved draft
  *   #/briefs        every brief saved in the Lark Base
  *   #/briefs/<id>   one saved brief, editable
- *   #/settings      Gemini key, name, connections   (#/settings/key focuses the key)
+ *   #/settings      account, Gemini key, connections   (#/settings/key focuses the key)
+ *
+ * Everything except Settings needs a Lark login (auth.js). Without one, any route
+ * shows the login screen and returns to that route after logging in.
  */
 (function (BX) {
   "use strict";
@@ -161,7 +164,7 @@
     const apply = () => {
       $$(".view").forEach((v) => v.classList.toggle("active", v.dataset.view === name));
       document.body.dataset.view = name;
-      const section = name === "settings" ? "settings"
+      const section = name === "login" || name === "busy" ? "" : name === "settings" ? "settings"
         : name === "briefs" || (name === "result" && S.doc?.mode === "record") ? "briefs" : "compose";
       $$("[data-nav]").forEach((a) => a.toggleAttribute("aria-current", a.dataset.nav === section));
     };
@@ -183,6 +186,8 @@
 
   function route() {
     const [a, b] = location.hash.replace(/^#\/?/, "").split("/");
+    renderHeader();
+    if (a !== "settings" && !BX.auth.currentToken()) return showLogin();
     if (a === "briefs" && b) return showRecord(decodeURIComponent(b));
     if (a === "briefs") return showBriefs();
     if (a === "result") return S.draft ? showDraft() : go("#/");
@@ -193,6 +198,97 @@
   function showSettings() {
     showView("settings");
     BX.settingsView.show();
+  }
+
+  // ---- Lark login ------------------------------------------------------------------
+  const LOW_SESSION_MS = 10 * 60 * 1000;
+  const auth = { note: "", returnTo: "", redirectChecked: false, warnedLow: false };
+
+  function showLogin() {
+    auth.returnTo = location.hash && location.hash !== "#/login" ? location.hash : "#/";
+    showView("login");
+    $("#loginMsg").hidden = !auth.note;
+    $("#loginMsg").textContent = auth.note;
+    busy($("#loginBtn"), false);
+    if (!auth.redirectChecked) {   // is this address registered on the Lark app?
+      auth.redirectChecked = true;
+      BX.auth.redirectProblem().then((problem) => {
+        $("#redirectMsg").hidden = !problem;
+        $("#redirectMsg").textContent = problem || "";
+      });
+    }
+  }
+
+  async function login(returnTo) {
+    try {
+      busy($("#loginBtn"), true, "Opening Lark…");
+      await BX.auth.startLogin(returnTo || auth.returnTo || "#/");
+    } catch (e) {
+      busy($("#loginBtn"), false);
+      auth.note = e.message;
+      if (S.view === "login") showLogin(); else toast(e.message, { type: "error" });
+    }
+  }
+
+  /** The login ended (expired, logged out, or Lark refused the token). Unsaved work
+   *  stays: the draft is in localStorage and edits are kept in memory. */
+  function sessionEnded(message) {
+    const wasIn = !!BX.auth.hadSession();
+    BX.auth.clearSession();
+    ["#saveDialog", "#deleteDialog"].forEach((d) => $(d).open && $(d).close());
+    closeMenu();
+    auth.note = message || "Your Lark login has ended. Log in again to keep going.";
+    auth.warnedLow = false;
+    renderHeader();
+    if (S.view === "settings") return BX.settingsView.show();
+    if (S.job) return;   // let a running extraction finish; it reports the login error itself
+    if (wasIn || S.view !== "login") showLogin();
+  }
+
+  function initials(name) {
+    return (name || "").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase() || "?";
+  }
+
+  function renderHeader() {
+    const signedIn = !!BX.auth.currentToken();
+    document.body.dataset.auth = signedIn ? "in" : "out";
+    if (!signedIn) return;
+    const left = BX.auth.msLeft();
+    const pill = $("#sessionPill");
+    $("#sessionLeft").textContent = BX.settingsView.fmtLeft(left);
+    pill.classList.toggle("is-low", left < LOW_SESSION_MS);
+    pill.title = `Your login lasts until ${BX.settingsView.fmtTime(BX.auth.endsAt())}`;
+    pill.setAttribute("aria-label", `Logged in for ${BX.settingsView.fmtLeft(left)} more`);
+    const u = BX.auth.user() || {};
+    const img = $("#avatar");
+    img.hidden = !u.avatar;
+    if (u.avatar && img.getAttribute("src") !== u.avatar) img.src = u.avatar;
+    $("#initials").hidden = !!u.avatar;
+    $("#initials").textContent = initials(u.name);
+    $("#meLink").title = u.name ? `${u.name} · Settings` : "Settings";
+  }
+
+  /** Every 20 s: update the clock, warn 5 minutes before the end, and end the session on time. */
+  function tickSession() {
+    if (!BX.auth.hadSession()) return;
+    if (!BX.auth.currentToken()) return sessionEnded("Your login ended after about 2 hours. Log in again to keep going.");
+    renderHeader();
+    BX.settingsView.tick();
+    if (!auth.warnedLow && BX.auth.msLeft() < 5 * 60 * 1000) {
+      auth.warnedLow = true;
+      toast(`Your Lark login ends at ${BX.settingsView.fmtTime(BX.auth.endsAt())}. Log in again to keep working without a break.`, {
+        type: "error", action: "Log in again", onAction: () => login(location.hash), timeout: 0,
+      });
+    }
+  }
+
+  /** Long actions need a little time left on the login. */
+  function ensureLoginTime(ms, what) {
+    if (BX.auth.msLeft() > ms) return true;
+    toast(`Your Lark login is about to end, so Fetch didn't ${what}. Log in again first.`, {
+      type: "error", action: "Log in again", onAction: () => login(location.hash), timeout: 9000,
+    });
+    return false;
   }
 
   /** Why extraction can't run right now ("" if it can). */
@@ -280,8 +376,17 @@
     S.items.forEach((it) => it.thumb && URL.revokeObjectURL(it.thumb));
     S.items = [];
     textarea().value = "";
+    saveComposeText();
     autosize();
     renderFiles();
+  }
+
+  // Typed text survives a trip to Lark's login page (this tab only).
+  function saveComposeText() {
+    try { sessionStorage.setItem("bx.composeText", textarea().value); } catch (_) { /* blocked */ }
+  }
+  function restoreComposeText() {
+    try { const t = sessionStorage.getItem("bx.composeText"); if (t && !textarea().value) textarea().value = t; } catch (_) { /* blocked */ }
   }
 
   function autosize() {
@@ -310,7 +415,8 @@
       const b = e.target.closest("[data-remove]");
       if (b) { e.stopPropagation(); removeFile(b.dataset.remove); }
     });
-    textarea().addEventListener("input", () => { autosize(); updateCompose(); });
+    restoreComposeText();
+    textarea().addEventListener("input", () => { autosize(); updateCompose(); saveComposeText(); });
     textarea().addEventListener("keydown", (e) => {
       if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && composeReady()) { autoRetry.used = false; startExtraction(); }
     });
@@ -451,6 +557,7 @@
 
   async function startExtraction() {
     if (!composeReady() || S.job) return;
+    if (!ensureLoginTime(2 * 60 * 1000, "start the extraction")) return;
     const problem = setupProblem();
     if (problem) {
       return toast(problem, { type: "error", action: "Open Settings", onAction: () => go("#/settings/key") });
@@ -545,6 +652,9 @@
       if (S.job !== job) return;
       S.job = null;
       if (err.code === "aborted") return showCompose();
+      if (/^login_/.test(err.code || "")) {   // typed text and the draft survive; files must be re-added after login
+        return sessionEnded(`${err.message} Your typed text is kept; files need to be added again after logging in.`);
+      }
       showLoaderError(err);
     }
   }
@@ -563,7 +673,8 @@
     $("#cancelBtn").hidden = true;
     $("#loaderError").hidden = false;
     const retryable = !["unsupported_file", "no_input", "too_large", "too_many_files", "content_rejected",
-      "forbidden_origin", "not_configured", "invalid_api_key"].includes(err.code);
+      "forbidden_origin", "not_configured", "invalid_api_key", "not_authorized",
+      "login_required", "login_expired", "login_invalid"].includes(err.code);
     $("#loaderErrorText").textContent = err.message || "Something went wrong.";
     $("#retryBtn").hidden = !retryable;
     $("#errSettingsBtn").hidden = !["not_configured", "invalid_api_key", "quota_exceeded"].includes(err.code);
@@ -571,6 +682,10 @@
       not_configured: "A Gemini API key is needed",
       invalid_api_key: "Your Gemini key needs attention",
       quota_exceeded: "Gemini usage limit reached",
+      not_authorized: "Your account doesn't have access",
+      login_required: "Please log in again",
+      login_expired: "Your login has ended",
+      login_invalid: "Please log in again",
     }[err.code] || (retryable ? "That didn't work this time" : "This brief couldn't be processed");
     $("#etaLabel").textContent = "";
 
@@ -922,10 +1037,8 @@
       : "This updates the existing row in the team's briefs table.";
     const rows = [["Project", m.project_title], ["Client", m.client_name], ["Due", B.dueText(m, false)],
       ["Budget", `${m.budget.amount}${m.budget.type !== "NOT SPECIFIED" ? ` (${B.label(m.budget.type)})` : ""}`]];
+    if (isNew) rows.push(["Filed by", (BX.auth.user() || {}).name || "You"]);
     $("#saveSummary").replaceChildren(...rows.flatMap(([k, v]) => [h("dt", {}, k), h("dd", { class: B.isMissing(v) ? "muted" : "" }, v)]));
-    const field = $("#filedBy").closest(".field");
-    field.hidden = !isNew;
-    $("#filedBy").value = BX.settings.name();
     $("#saveError").hidden = true;
     $("#saveConfirm .label").textContent = isNew ? "Save to Lark" : "Save changes";
     $("#saveDialog").showModal();
@@ -936,13 +1049,13 @@
     const doc = S.doc;
     const btn = $("#saveConfirm");
     const isNew = doc.mode === "draft";
+    if (!ensureLoginTime(60 * 1000, "save")) return;
     busy(btn, true, "Saving…");
     $("#saveError").hidden = true;
     try {
       let rec;
       if (isNew) {
-        const filedBy = $("#filedBy").value.trim();
-        if (filedBy) BX.settings.set({ name: filedBy });
+        const filedBy = (BX.auth.user() || {}).name || "";
         const skipped = await uploadPending(doc, $("#saveConfirm .label"));
         const extra = { filedBy, sources: (doc.sources || []).join("\n") };
         if (doc.nextSteps.length) extra.nextSteps = doc.nextSteps;
@@ -1339,7 +1452,6 @@
           : S.briefsAt ? { state: "ok", count: S.briefs.length } : { state: "unknown" }),
       reconnect({ tableChanged = false } = {}) {
         applyLinks();
-        BX.lark.resetToken();
         if (tableChanged) {
           S.briefs = null;
           S.edits = {};
@@ -1348,7 +1460,18 @@
         BX.extract.warm.at = 0;   // force a fresh check of the extraction service
         BX.extract.ensureAwake();
         S.briefsAt = 0;
-        loadBriefs().catch(() => {});
+        if (BX.auth.currentToken()) loadBriefs().catch(() => {});
+      },
+      login: (returnTo) => login(returnTo),
+      logout() {
+        // Logging out also forgets the cached list, so the next person on this
+        // computer can't see it. The unsaved draft is theirs to resume or discard.
+        S.briefs = null;
+        S.briefsAt = 0;
+        S.edits = {};
+        cacheBriefs();
+        sessionEnded("You've logged out of Fetch. You're still logged in to Lark itself.");
+        go("#/");
       },
       clearLocal() {
         setDraft(null);
@@ -1359,13 +1482,24 @@
         cacheBriefs();
         try { localStorage.removeItem("bx.etaFactor.lite"); } catch (_) { /* blocked */ }
         toast("Local data cleared.", { type: "success" });
-        loadBriefs().catch(() => {});
+        if (BX.auth.currentToken()) loadBriefs().catch(() => {});
       },
     });
   }
 
   // ---- boot -------------------------------------------------------------------
-  function init() {
+  /** Back from Lark's login page (?code=…&state=… or ?error=…)? Finish the login. */
+  async function finishLoginIfReturning() {
+    const params = new URLSearchParams(location.search);
+    if (!params.has("code") && !params.has("error")) return;
+    showView("busy");
+    const res = await BX.auth.finishLogin(params);
+    // Drop ?code from the address bar (and history) at once.
+    history.replaceState(null, "", location.pathname + (res.returnTo || location.hash || "#/"));
+    auth.note = res.ok ? "" : res.message;
+  }
+
+  async function init() {
     hydrateIcons();
     wireCompose();
     wireProcessing();
@@ -1377,6 +1511,10 @@
     cacheBriefs();
 
     wireSettings();
+    $("#loginBtn").onclick = () => login();
+    document.addEventListener("bx:auth-ended", (e) => sessionEnded(e.detail?.message));
+    setInterval(tickSession, 20000);
+    document.addEventListener("visibilitychange", () => document.visibilityState === "visible" && tickSession());
     document.addEventListener("bx:status", updateSetupNote);
     document.addEventListener("bx:status", () => {
       $("#blockNote").hidden = !BX.extract.warm.blocked;
@@ -1391,8 +1529,16 @@
     document.addEventListener("visibilitychange", () => {   // back after a while: it may have gone to sleep
       if (document.visibilityState === "visible" && !BX.extract.isFresh()) BX.extract.ensureAwake();
     });
-    loadBriefs().catch(() => {});
     updateSetupNote();
+
+    await finishLoginIfReturning();
+    if (BX.auth.currentToken()) {
+      loadBriefs().catch(() => {});
+      BX.auth.loadUser().then(() => { renderHeader(); if (S.view === "settings") BX.settingsView.show(); }).catch(() => {});
+    } else if (BX.auth.hadSession() && !auth.note) {
+      auth.note = "Your login ended after about 2 hours. Log in again to keep going.";
+      BX.auth.clearSession();
+    }
 
     window.addEventListener("hashchange", route);
     window.addEventListener("beforeunload", (e) => {

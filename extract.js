@@ -190,7 +190,13 @@
 
     const xhr = new XMLHttpRequest();
     const promise = new Promise((resolve, reject) => {
+      const login = BX.auth.token();
+      if (!login) {
+        BX.auth.ended();
+        return reject(new ExtractError("Your Lark login has ended. Log in again, then extract the brief.", "login_expired", 401));
+      }
       xhr.open("POST", `${cfg().GEMINI_PROXY_URL}/extract`);
+      xhr.setRequestHeader("Authorization", `Bearer ${login}`);   // the service checks this with Lark
       const key = BX.settings.geminiKey();
       if (key) xhr.setRequestHeader("X-Gemini-Api-Key", key);   // the user's own key, from Settings
       xhr.timeout = 6 * 60 * 1000;
@@ -205,6 +211,7 @@
           return resolve(body);
         }
         const err = body.error || {};
+        if (["login_required", "login_expired", "login_invalid"].includes(err.code)) BX.auth.ended(err.message);
         reject(new ExtractError(err.message || `The extraction service returned an error (HTTP ${xhr.status}).`,
           err.code || "http", xhr.status, Number(xhr.getResponseHeader("Retry-After")) || 0));
       };

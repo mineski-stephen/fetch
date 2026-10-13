@@ -14,7 +14,13 @@ window.BRIEF_CONFIG = {
   // Render service hosting the Lark CORS proxy (tech/lark-proxy).
   LARK_PROXY_URL: "https://lark-proxy-dwiw.onrender.com",
 
-  // Lark Base that stores every filed brief.
+  // Lark login (auth.js). Same Lark app as Polaris; the proxy holds its secret.
+  // Every address Fetch is served from must be a Redirect URL on this app.
+  LARK_APP_ID: "cli_aab0716138b8ded3",
+  LARK_SCOPES: "bitable:app",
+
+  // Lark Base that stores every filed brief. Only people who can open this table
+  // can use Fetch (the extraction service checks it too).
   LARK_API_BASE: "https://open.larksuite.com/open-apis",
   LARK_APP_TOKEN: "NP7TbjwHNaTyLOsWafelN9wNgEd",
   LARK_TABLE_ID: "tblG3XcLw2auB4lM",

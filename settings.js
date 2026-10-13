@@ -1,7 +1,11 @@
 /*
  * Settings - per-browser preferences layered over config.js:
  *
- *   config.js defaults  ←  saved settings (this browser)  ←  ?gemini= / ?lark= (localhost only, for testing)
+ *   config.js defaults  ←  saved addresses (localhost only)  ←  ?gemini= / ?lark= (localhost only, for testing)
+ *
+ * Service addresses and the table link can only be overridden on a local page:
+ * the Lark proxy receives people's login tokens, so a hosted page must always
+ * use the real one.
  *
  * BX.config is rebuilt whenever settings change, so modules should always read
  * BX.config at call time rather than caching it.
@@ -23,11 +27,11 @@
     try { localStorage.setItem(KEY, JSON.stringify(value)); return true; } catch (_) { return false; }
   }
 
-  (function migrate() {   // v1.0 kept the "Filed by" name under its own key
+  (function migrate() {   // "Filed by" now comes from the Lark login
     try {
-      const old = JSON.parse(localStorage.getItem("bx.filedBy") || "null");
-      if (old && !read().name) write(Object.assign(read(), { name: old }));
       localStorage.removeItem("bx.filedBy");
+      const s = read();
+      if (s.name) { delete s.name; write(s); }
     } catch (_) { /* storage blocked */ }
   })();
 
@@ -51,14 +55,17 @@
     try { const x = new URL(u); return x.protocol === "https:" || (x.protocol === "http:" && isLocal(u)); } catch (_) { return false; }
   };
 
+  const localPage = isLocal(location.href);
+
   function build() {
-    const s = read();
+    const s = localPage ? read() : {};
     const c = Object.assign({}, DEFAULTS);
     if (s.geminiUrl) c.GEMINI_PROXY_URL = s.geminiUrl;
     if (s.larkUrl) c.LARK_PROXY_URL = s.larkUrl;
     const table = s.larkTable && parseLarkTable(s.larkTable);
     if (table) Object.assign(c, { LARK_APP_TOKEN: table.appToken, LARK_TABLE_ID: table.tableId, LARK_TABLE_URL: table.url });
-    try {   // testing overrides; only local URLs, so a shared link can't redirect uploads
+    c.OVERRIDDEN = !!(s.geminiUrl || s.larkUrl || table);
+    if (localPage) try {   // testing overrides; only local URLs, so a shared link can't redirect uploads
       const q = new URLSearchParams(location.search);
       if (q.has("reset")) ["gemini", "lark"].forEach((k) => sessionStorage.removeItem(`bx.override.${k}`));
       ["gemini", "lark"].forEach((k) => q.get(k) && isLocal(q.get(k)) && sessionStorage.setItem(`bx.override.${k}`, q.get(k)));
@@ -120,7 +127,7 @@
     testKey,
     KEY_SHAPE,
     geminiKey: () => read().geminiKey || "",
-    name: () => read().name || "",
+    localPage,
   };
   build();
 
@@ -131,6 +138,39 @@
   function result(el, ok, text) {
     el.textContent = text || "";
     el.className = `set-result${ok === true ? " is-ok" : ok === false ? " is-err" : ""}`;
+  }
+
+  const fmtTime = (ms) => new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  function fmtLeft(ms) {
+    const m = Math.max(0, Math.round(ms / 60000));
+    return m >= 60 ? `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")} min` : `${m} min`;
+  }
+  const sessionLine = () => `Logged in until ${fmtTime(BX.auth.endsAt())} · ${fmtLeft(BX.auth.msLeft())} left`;
+
+  function paintAccount() {
+    const box = $("#account");
+    const el = (tag, attrs, ...kids) => {
+      const n = document.createElement(tag);
+      Object.entries(attrs || {}).forEach(([k, v]) => (k === "onclick" ? (n.onclick = v) : n.setAttribute(k, v)));
+      n.append(...kids.filter((k) => k != null));
+      return n;
+    };
+    if (BX.auth.currentToken()) {
+      const u = BX.auth.user() || {};
+      const initials = (u.name || "").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase() || "?";
+      const pic = u.avatar ? el("img", { class: "avatar", src: u.avatar, alt: "", referrerpolicy: "no-referrer" })
+        : el("span", { class: "avatar avatar-initials", "aria-hidden": "true" }, initials);
+      box.replaceChildren(pic,
+        el("div", { class: "account-text" }, el("b", {}, u.name || "Logged in with Lark"), el("span", { id: "accSession" }, sessionLine())),
+        el("div", { class: "account-actions" },
+          el("button", { type: "button", class: "btn btn-sm", onclick: () => hooks.login?.(location.hash) }, "Log in again"),
+          el("button", { type: "button", class: "btn btn-sm btn-ghost", onclick: () => hooks.logout?.() }, "Log out")));
+    } else {
+      box.replaceChildren(
+        el("div", { class: "account-text" }, el("b", {}, "You're not logged in."), el("span", {}, "Log in with Lark to extract and save briefs. A login lasts about 2 hours.")),
+        el("div", { class: "account-actions" },
+          el("button", { type: "button", class: "btn btn-sm btn-primary", onclick: () => hooks.login?.("#/") }, "Log in with Lark")));
+    }
   }
 
   function paintKey() {
@@ -168,8 +208,9 @@
     $("#geminiStatus").textContent = gem[1] + (where ? ` · ${where}` : "")
       + (BX.config.GEMINI_OVERRIDDEN ? " (test address from the page link; open the page with ?reset to go back)" : "");
 
-    const l = hooks.larkStatus ? hooks.larkStatus() : { state: "unknown" };
+    const l = !BX.auth.currentToken() ? { state: "out" } : hooks.larkStatus ? hooks.larkStatus() : { state: "unknown" };
     const lark = {
+      out: ["muted", "Log in to connect"],
       loading: ["warn", "Connecting… (can take up to a minute after a quiet spell)"],
       ok: ["ok", `Connected · ${l.count} brief${l.count === 1 ? "" : "s"}`],
       error: ["err", l.error || "Couldn't connect"],
@@ -177,7 +218,9 @@
     }[l.state];
     $("#larkDot").className = `dot tone-${lark[0]}`;
     $("#larkStatus").textContent = lark[1];
+    $("#refreshLark").hidden = l.state === "out";
     paintKey();
+    paintAccount();
   }
 
   function fillAdvanced() {
@@ -199,7 +242,7 @@
 
   function show() {
     paintTheme();
-    $("#setName").value = BX.settings.name();
+    $("#advancedBox").hidden = !localPage;
     $("#geminiKey").value = BX.settings.geminiKey();
     $("#geminiKey").type = "password";
     result($("#keyResult"));
@@ -255,14 +298,6 @@
     };
     $("#geminiKey").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#saveKey").click(); });
 
-    const saveName = () => {
-      set({ name: $("#setName").value.trim() });
-      result($("#nameResult"), true, "Saved.");
-      setTimeout(() => result($("#nameResult")), 1800);
-    };
-    $("#saveName").onclick = saveName;
-    $("#setName").addEventListener("keydown", (e) => { if (e.key === "Enter") saveName(); });
-
     $("#wakeGemini").onclick = () => { BX.extract.warm.at = 0; BX.extract.ensureAwake(); paintStatus(); };
     $("#refreshLark").onclick = () => hooks.reconnect?.();
 
@@ -300,5 +335,11 @@
     document.addEventListener("bx:status", () => { if (document.body.dataset.view === "settings") paintStatus(); });
   }
 
-  BX.settingsView = { mount, show, paint: paintStatus };
+  /** Refresh just the "time left" line (called by the app's session clock). */
+  function tick() {
+    const line = document.getElementById("accSession");
+    if (line && BX.auth.currentToken()) line.textContent = sessionLine();
+  }
+
+  BX.settingsView = { mount, show, paint: paintStatus, tick, fmtLeft, fmtTime };
 })((window.BX = window.BX || {}));
