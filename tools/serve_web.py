@@ -15,6 +15,11 @@ WEB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")   # index.h
 
 
 class NoCache(SimpleHTTPRequestHandler):
+    # Module scripts refuse to run unless served as JavaScript; a Windows registry
+    # entry can make Python guess "text/plain" for .js, so set the types here.
+    extensions_map = {**SimpleHTTPRequestHandler.extensions_map, ".js": "text/javascript", ".mjs": "text/javascript",
+                      ".css": "text/css", ".webmanifest": "application/manifest+json"}
+
     def end_headers(self):
         self.send_header("Cache-Control", "no-store, must-revalidate")
         super().end_headers()

@@ -147,17 +147,25 @@ app secret on `/authen/v2/oauth/token`). The hosted one has it.
 ```
 project-brief/                     ← the repository root = the website root
 ├── index.html                     ★ Page shell: compose, loader, document, history, settings, dialog
-├── config.js                      ★ Defaults for everyone (service URLs, Lark table, Next Steps list)
-├── styles.css                     Design tokens, light/dark themes, motion, responsive layout
-├── app.js                         Routing and screens (incl. Next steps & Attachments cards)
-├── settings.js                    Per-browser settings (Gemini key, theme, local overrides) + Settings screen
-├── auth.js                        Lark login (OAuth + PKCE), the session and its clock
-├── brief.js                       Brief model: normalise, dates, Markdown, chat text
-├── doc.js                         Editable document renderer (click-to-edit)
-├── pdf.js                         PDF export (pdfmake, lazy-loaded from cdnjs)
-├── lark.js                        Lark Base client (as the signed-in user): rows, column mapping, file uploads
-├── extract.js                     Talking to the Gemini proxy: wake-up, upload, wait estimate
-├── icons.js                       Inline SVG icons
+├── css/
+│   ├── theme.css                  Fetch's colors, light and dark (copied unedited from the Mineski design language)
+│   ├── mineski-base.css           Every shared component (copied unedited; never edit it here)
+│   └── app.css                    Fetch's own parts on tokens: drop zone, loader dog, the white paper, phone bar
+├── js/                            ES modules, loaded through the import map in index.html
+│   ├── config.js                  ★ Defaults for everyone (service URLs, Lark table, Next Steps list)
+│   ├── app.js                     Routing and screens (incl. Next steps & Attachments cards)
+│   ├── settings.js                Per-browser settings (Gemini key, local overrides) and cfg()
+│   ├── settings-view.js           The Settings screen
+│   ├── auth.js                    Lark login (OAuth + PKCE), the session and its clock
+│   ├── brief.js                   Brief model: normalise, dates, Markdown, chat text
+│   ├── doc.js                     Editable document renderer (click-to-edit)
+│   ├── pdf.js                     PDF export (pdfmake, lazy-loaded from cdnjs)
+│   ├── lark.js                    Lark Base client (as the signed-in user): rows, column mapping, file uploads
+│   ├── extract.js                 Talking to the Gemini proxy: wake-up, upload, wait estimate
+│   ├── ui.js                      Shared helpers: toasts, menus, sheets, busy buttons, theme (copied unedited)
+│   └── icons.js                   Shared inline SVG icons (copied unedited)
+├── styles.css, *.js (root)        Old copies kept for ONE release only, so a cached old index.html
+│                                  doesn't 404 during the switch. Delete them in the next release.
 ├── manifest.webmanifest           App name + icons for "Add to Home Screen"
 ├── .nojekyll                      Tells GitHub Pages to serve files as-is
 ├── img/
@@ -273,8 +281,8 @@ The columns were created by `tools/setup_lark_table.py`:
 | Filed By | Text | Optional name entered in the save dialog (remembered per browser). |
 | Source Files | Text | Names of the uploaded files. |
 | Requirement Type | Single select | RFP (Request for Proposal: pitch and propose) · RFQ (Request for Quotation: quotation only) · RFI (Request for Information: just asking, nothing to submit). Gemini detects it, and the choice is pre-selected in the **Requirement & VAT** card beside the document, with Gemini's one-line reason; the user can change it. Saved to Lark only, not in the document. |
-| VAT | Multi-select (one value used) | **VAT Inc.** (prices include 12% VAT) or **VAT Ex.** (VAT-exclusive, or 0% for foreign / exempt clients). Gemini follows what the brief explicitly says first; if it says nothing, a local client means VAT Inc. and a foreign one VAT Ex. The pre-selected choice always agrees with the note shown under it. Labels: `VAT_CHOICES` in `config.js`. |
-| Next Steps | Multi-select | Picked in the **Next steps** card beside the document (AM Assignment, File Project Brief and trigger Lark GC, PM Assignment, Pitch Deck, Other, or a custom step, which Lark adds as a new option). Saved to Lark only, never part of the document, PDF or chat text. The default list is `NEXT_STEP_OPTIONS` in `config.js`. |
+| VAT | Multi-select (one value used) | **VAT Inc.** (prices include 12% VAT) or **VAT Ex.** (VAT-exclusive, or 0% for foreign / exempt clients). Gemini follows what the brief explicitly says first; if it says nothing, a local client means VAT Inc. and a foreign one VAT Ex. The pre-selected choice always agrees with the note shown under it. Labels: `VAT_CHOICES` in `js/config.js`. |
+| Next Steps | Multi-select | Picked in the **Next steps** card beside the document (AM Assignment, File Project Brief and trigger Lark GC, PM Assignment, Pitch Deck, Other, or a custom step, which Lark adds as a new option). Saved to Lark only, never part of the document, PDF or chat text. The default list is `NEXT_STEP_OPTIONS` in `js/config.js`. |
 | Attachments | Attachment | The uploaded brief files (plus typed text as `Brief text.txt`), uploaded on save through the Lark proxy (Drive media API, `drive:drive` scope). Files can be added or removed in the **Attachments** card. Limit per file: `LARK_ATTACH_MAX_MB` (10 MB, the Lark proxy's default `MAX_BODY_BYTES`; Lark allows up to 20 MB). Files from before a page reload must be re-added. |
 | Done | Single select | **Yes** or **No**. Set from the page (right-click a card, or its ⋯ button → *Mark as Done* / *Mark as Not Done*) or in Lark. **Yes** moves the brief out of the main list into the collapsed **Done** section (newest filed first). **No** or empty keeps it in the list. New rows start as **No**. |
 | **Brief JSON** | Text | **The source of truth the page renders from. Don't edit it by hand.** |
@@ -334,7 +342,7 @@ its `GEMINI_MODEL` variable. See
 
 ### 2. Point the page at it
 
-`config.js` already points at the deployed services:
+`js/config.js` already points at the deployed services:
 
 ```js
 GEMINI_PROXY_URL: "https://gemini-pdf-6wp4.onrender.com",
@@ -344,16 +352,17 @@ LARK_PROXY_URL:   "https://lark-proxy-dwiw.onrender.com",
 These are the same for everyone. **Settings → Advanced** (local copies only,
 on `localhost`) can point a developer's browser elsewhere; a hosted page always
 uses these, because the Lark proxy receives people's login tokens. There is no cache to bust after an
-update: the page loads its styles and scripts under a fresh URL every time it
-opens (`BX_BUILD` in `index.html`), so users always get the latest files.
+update: the page loads its styles and modules under a fresh URL every time it
+opens (`APP_BUILD` and the import map in `index.html`; list every new `js/` file
+there), so users always get the latest files.
 
 ### 3. Host the page (GitHub Pages)
 
 Before the first login from the new address, add it to the Lark app's
 **Redirect URLs** (see [Lark login](#lark-login)).
 
-The website is the files in the project root: `index.html`, the `.js` files,
-`styles.css`, `manifest.webmanifest`, `.nojekyll` and `img/`. They're plain
+The website is the files in the project root: `index.html`, `css/`, `js/`,
+`manifest.webmanifest`, `.nojekyll` and `img/`. They're plain
 static files (no build step, no server code) linked with relative paths, so
 they work at any address, including a GitHub Pages sub-path like
 `https://<user>.github.io/<repo>/`.
@@ -374,9 +383,8 @@ it that way: never commit API keys or `.env` files to this repository. The
 Other static hosts (Netlify, Cloudflare Pages, Render Static Site) work the
 same way: publish the project root, no build command.
 
-For quick internal use you can also open `index.html` straight from disk. It
-works from `file://`, but then the Gemini proxy's `ALLOWED_ORIGINS` must
-include `null` or stay `*`.
+The page is built from ES modules, so it must be served over http(s) (or
+`http://localhost`): opened straight from disk it shows *Fetch couldn't start*.
 
 ### 4. Lock it down (recommended)
 
@@ -432,10 +440,15 @@ the current browser only.
 | ------- | ------------ |
 | **Gemini API key** | Your own key from [Google AI Studio](https://aistudio.google.com/apikey). It's sent to the extraction service with each brief (`X-Gemini-Api-Key` header), used once, and never stored there. **Required** when the service has no shared key; the status pill shows *Key needed*, *Using the shared key* or *Using your key*. **Save key** also checks it with Google and shows which Flash-Lite model you'll get; **Test key** re-checks it. |
 | **Account** | Your Lark name and picture, how long the login has left, **Log in again** (a fresh 2 hours) and **Log out**. Settings is the one screen that opens without logging in. |
-| **Appearance** | System (follows the computer), Light or Dark. Saved per browser and applied before the page draws, so there's no flash. |
+| **Appearance** | System (follows the computer), Light or Dark (arrow keys move between them). Saved per browser under `fetch.theme` and applied before the page draws, so there's no flash. |
 | **Connections** | Live status of the extraction service (*Awake* / *Waking up…* / *Unreachable*) and Lark (*Connected · N briefs*), with **Wake up** and **Refresh** buttons. |
-| **Advanced: service addresses** | Only on `localhost`. Override the extraction service URL, the Lark proxy URL, or the Lark table (paste the table's link). Empty = the defaults in `config.js`. |
-| **This browser** | Clears the unsaved draft and the cached briefs list (keeps your key and login). |
+| **Advanced: service addresses** | Only on `localhost`. Override the extraction service URL, the Lark proxy URL, or the Lark table (paste the table's link). Empty = the defaults in `js/config.js`. |
+| **This browser** | Clears the unsaved draft and the cached briefs list (keeps your key, theme and login). One click; **Undo** in the toast puts them back. |
+
+Everything Fetch keeps in the browser uses `fetch.*` keys (`fetch.settings`,
+`fetch.theme`, `fetch.draft`, `fetch.briefsCache`, `fetch.etaFactor`; the login
+and typed text in `sessionStorage`). Older versions used `bx.*`; a small script
+at the top of `index.html` moves those once and can be removed after January 2027.
 
 The *Setup needed* bar on the landing page, and any key-related error in the
 loader, link straight to the key field (`#/settings/key`).
@@ -517,10 +530,17 @@ cd render/gemini-pdf && python -m unittest discover -s tests -v
 - **Nothing is lost**: unsaved drafts survive a refresh; unsaved edits to saved
   briefs are kept while you browse and flagged on their card; closing the tab
   mid-extraction asks for confirmation.
-- **Brand**: the Fetch logo (a dog fetching a letter), Mineski yellow (`#FFC800`) with near-black ink
-  for contrast, a warm neutral palette with a single subtle background glow,
-  Plus Jakarta Sans, light and dark themes, motion that respects *reduce
-  motion*, and a phone layout with a bottom action bar.
+- **Brand**: Fetch follows the Mineski design language (`design-ref/mineski-design-language`),
+  shared with Polaris: the same buttons, fields, cards, badges, toasts, sheets,
+  menus, focus rings and motion, from the unedited `css/mineski-base.css`,
+  `js/ui.js` and `js/icons.js`. Fetch's own dials are the Fetch logo (a dog
+  fetching a letter), Mineski yellow (`#FFC800`) with near-black ink, warm
+  neutrals with one subtle background glow and Plus Jakarta Sans
+  (`css/theme.css`). Its own parts are the drop zone, the running dog, the
+  always-white paper (its colors are the `--p-*` tokens in `css/app.css`, in
+  step with `js/pdf.js`) and the phone bottom action bar. Light and dark
+  themes; motion respects *reduce motion* (spinners keep turning slowly, the
+  dog is hidden).
 
 ---
 
@@ -604,6 +624,7 @@ cd render/gemini-pdf && python -m unittest discover -s tests -v
 | All briefs shows "Waking up the Lark connection…" | The Lark proxy is cold-starting (up to ~1 minute). |
 | A file is rejected | The message says why: e.g. an old `.doc`/`.ppt` (save as PDF), a ZIP (unzip it), or over 50 MB in total. |
 | Users see an old version after an update | Only `index.html` itself could be stale (scripts and styles always load fresh). Reload the page; hosts normally revalidate HTML on every visit. |
+| "Fetch couldn't start. Reload the page." | A module failed to load (a flaky connection or a half-finished deploy), or the page was opened from a file. Reload; open it from its web address. |
 
 ---
 
@@ -616,16 +637,16 @@ the proxy. No page changes needed.
 
 1. `render/gemini-pdf/brief_spec.py`: add it to `RESPONSE_SCHEMA` and
    `normalize()`; describe it in `prompt.md`.
-2. `brief.js`: add it to `normalize()`, `toMarkdown()` and the chat text.
-3. `doc.js`: render it (use `ed()` for text or `listBlock()` for a list).
-4. `pdf.js`: add it to `build()`.
-5. `lark.js` → `FIELD` and `toFields()`; `tools/setup_lark_table.py` →
+2. `js/brief.js`: add it to `normalize()`, `toMarkdown()` and the chat text.
+3. `js/doc.js`: render it (use `ed()` for text or `listBlock()` for a list).
+4. `js/pdf.js`: add it to `build()`.
+5. `js/lark.js` → `FIELD` and `toFields()`; `tools/setup_lark_table.py` →
    `FIELDS`; then run the script with `--apply`.
 
-**Rename a Lark column**: update the name in both `lark.js` (`FIELD`) and
+**Rename a Lark column**: update the name in both `js/lark.js` (`FIELD`) and
 `tools/setup_lark_table.py` (`FIELDS`) first, otherwise saves fail with
 `1254045`.
 
 **Move to a different table**: update `LARK_APP_TOKEN`, `LARK_TABLE_ID` and
-`LARK_TABLE_URL` in `config.js` and the constants at the top of the setup
+`LARK_TABLE_URL` in `js/config.js` and the constants at the top of the setup
 script, grant the app access, then run the script with `--apply`.

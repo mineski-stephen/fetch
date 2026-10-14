@@ -1,0 +1,77 @@
+/* Fetch (Project Brief Extractor) - theme tokens, mapped from Fetch's styles.css
+   onto the canonical token names. Mineski yellow on warm off-white.
+   Reference only: a NEW tool must not reuse this hue (see references/brand-and-identity.md).
+
+   Differences from Fetch's own file (fixes, see FETCH-CHANGES.md in the project root):
+   - --focus is the dark amber, not #FFC800 (yellow on off-white is 1.4:1, below the 3:1 a focus ring needs)
+   - Fetch's "--brand-ink" (text ON yellow) is --on-brand here; "--accent-text" is --brand-text */
+
+:root {
+  --font: "Plus Jakarta Sans";
+  --brand: #FFC800;
+  --brand-hover: #FFD52E;
+  --brand-strong: #F2B200;
+  --on-brand: #16150F;
+  --brand-soft: #FFF6CC;
+  --brand-text: #8A6100;
+  --on-brand-soft: #8A6100;
+  --focus: #8A6100;
+
+  --bg: #F7F6F1;
+  --surface: #FFFFFF;
+  --surface-2: #FAF9F5;
+  --surface-3: #16150F;
+  --ink: #16150F;
+  --ink-2: #3A3830;
+  --muted: #6B6A63;
+  --line: #E8E6DF;
+  --line-2: #D8D5CA;
+
+  --shadow-rgb: 22, 21, 15;
+  --brand-rgb: 255, 200, 0;
+  --glow: rgba(var(--brand-rgb), .09);
+  --toast-bg: #16150F;
+  --toast-fg: #F7F6F1;
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --brand-soft: rgba(255, 200, 0, .13);
+  --brand-text: #FFD54A;
+  --on-brand-soft: #FFD54A;
+  --focus: #FFD54A;
+  --bg: #11110E;
+  --surface: #1A1A16;
+  --surface-2: #20201B;
+  --surface-3: #2E2D27;
+  --ink: #F4F3EC;
+  --ink-2: #D6D4CA;
+  --muted: #A3A195;
+  --line: #2D2C26;
+  --line-2: #3B3A32;
+  --glow: rgba(var(--brand-rgb), .045);
+  --toast-bg: #2E2D27;
+  --toast-fg: #F4F3EC;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --brand-soft: rgba(255, 200, 0, .13);
+    --brand-text: #FFD54A;
+    --on-brand-soft: #FFD54A;
+    --focus: #FFD54A;
+    --bg: #11110E;
+    --surface: #1A1A16;
+    --surface-2: #20201B;
+    --surface-3: #2E2D27;
+    --ink: #F4F3EC;
+    --ink-2: #D6D4CA;
+    --muted: #A3A195;
+    --line: #2D2C26;
+    --line-2: #3B3A32;
+    --glow: rgba(var(--brand-rgb), .045);
+    --toast-bg: #2E2D27;
+    --toast-fg: #F4F3EC;
+    color-scheme: dark;
+  }
+}

@@ -1,6 +1,7 @@
 {
   "name": "Fetch - Project Brief Extractor",
   "short_name": "Fetch",
+  "description": "Fetch turns client briefs into a standardised project brief summary, ready for the team and saved to Lark.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
