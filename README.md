@@ -10,6 +10,9 @@ screenshot of a chat, an e-mail, or just pasted text) and gets back:
 
 - a **standardised document** they can edit by clicking on it and download as a PDF;
 - a **copy-paste message** formatted for the group chat;
+- **Check sources**: click any point of the summary to see the passages of the
+  brief it was based on, highlighted in the original file, and **Brief files**
+  to read and search the whole brief with everything the summary used marked;
 - a **row in the Lark Base** (on confirmation), with the full brief stored
   as JSON so it can be reopened, edited and re-shared from the page later;
 - a **history of every brief** the team has filed, searchable and sortable
@@ -31,6 +34,7 @@ Lark can use Fetch.
 - [Lark login](#lark-login)
 - [Repository layout](#repository-layout)
 - [What gets extracted](#what-gets-extracted)
+- [Check sources](#check-sources)
 - [The Lark table](#the-lark-table)
 - [Deploying](#deploying)
 - [Using it (for the BD team)](#using-it-for-the-bd-team)
@@ -85,6 +89,9 @@ Lark can use Fetch.
    Flash-Lite** with a **fixed prompt and a strict JSON schema**. It uses the
    service's shared key, or the user's own key from Settings if they added one.
 3. The JSON is validated and normalised, so the page always gets the same shape.
+   In the same answer Gemini lists, for every value and bullet, the passages of
+   the sources it was based on (`evidence`), and the service sends back the text
+   it converted from Office files and e-mails (`texts`). See [Check sources](#check-sources).
 4. The page renders it as an **editable document** (following
    `project-brief-template.md`), generates the **chat message**, and can
    produce a **PDF**. Every edit updates one JSON model that feeds all outputs.
@@ -196,9 +203,11 @@ project-brief/                     ← the repository root = the website root
 │   ├── brief.js                   Brief model: normalise, dates, Markdown, chat text (pure)
 │   ├── doc.js                     Editable document renderer (click-to-edit)
 │   ├── pdf.js                     PDF export (pdfmake, lazy-loaded from cdnjs)
-│   ├── sources.js                 "Check sources": the source viewer (pdf.js, Tesseract.js OCR, text), lazy-loaded from jsDelivr
-│   ├── evidence.js                Which quote belongs to a field, after reorders and edits (pure)
-│   ├── match.js                   Finding a quote in a page, text or OCR words, typo-tolerant (pure)
+│   ├── sources.js                 "Check sources" side panel: passages, PDF / image / text viewers (pdf.js, Tesseract.js OCR), files kept in memory
+│   ├── docview.js                 "Brief files": every file in full, search, the summary's passages marked, cards back to the summary
+│   ├── viewport.js                Pan-and-zoom box for one page: wheel / pinch zoom, drag, keys, fit a passage to the width
+│   ├── evidence.js                Which passages belong to a field, after reorders and edits (pure)
+│   ├── match.js                   Finding a quote or search phrase in a page, text or OCR words, typo-tolerant (pure)
 │   ├── ui.js                      Shared helpers: toasts, menus, sheets, busy buttons, theme (copied unedited)
 │   └── icons.js                   Shared inline SVG icons (copied unedited)
 ├── manifest.webmanifest           App name + icons for "Add to Home Screen"
@@ -214,7 +223,7 @@ project-brief/                     ← the repository root = the website root
 ├── render/
 │   └── gemini-pdf/                The Gemini proxy (Render web service) — see its README
 ├── tests/
-│   ├── *.test.mjs                 Offline tests of the pure modules and of ops.js against a fake Lark (`npm test`)
+│   ├── *.test.mjs                 Offline tests of the pure modules (incl. match.js, evidence.js) and of ops.js against a fake Lark (`npm test`)
 │   ├── fake-lark.mjs              An in-memory stand-in for the Lark endpoints Fetch uses
 │   ├── check-live.mjs             Read-only check of the live table (`npm run check:live`)
 │   ├── check-proxy.mjs            GET / of both services: version, headers (`npm run check:proxy`)
@@ -305,6 +314,74 @@ TL;DR: KTO Manila seeks an in-house fabrication agency to design, build and …
 1. What are the quantitative KPIs for footfall and lead generation?
 Filed 2 Oct 2026
 ```
+
+---
+
+## Check sources
+
+A summary rewords, merges and deduces. *Check sources* shows, for any point of
+it, where in a long brief that point came from, so it can be checked against the
+original in seconds.
+
+**Where the passages come from.** In the same Gemini call that writes the
+summary, the prompt (`render/gemini-pdf/prompt.md`, *# Evidence*) asks for every
+value and bullet (notes included; not the TL;DR or the questions for the client)
+with the 1-3 passages of the sources it was based on, copied word for word, with
+the file number and PDF page. The service validates them (`normalize_evidence` in
+`brief_spec.py`: known fields, real files, list items re-pointed after duplicates
+are dropped, at most 80 fields and 3 passages each) and returns them as
+`evidence` beside the brief, with `texts` (what it converted from Office files,
+e-mails and other text). If Gemini refuses to quote (its recitation filter), the
+service retries once without passages so the extraction still succeeds. The
+passages add roughly 2-4k output tokens (about 5-15 seconds) to an extraction.
+
+**Where they are kept.** `evidence` is stored with the draft (`fetch.draft`, a
+few KB) and never written to Lark; the brief's own shape (schema v1) is
+unchanged. The files and `texts` stay in the tab's memory only (`sources.js`
+`attach`), so after a reload a passage still shows as text and **Add “file”
+again** brings back the highlights. Saving the brief forgets them.
+
+**Finding a passage in the file** (`js/match.js`). The passage is located in the
+file itself: a PDF's text layer (pdf.js), the words Tesseract.js reads from a
+screenshot or a scanned page, or the text. Matching ignores case, accents,
+punctuation and number formatting ("3,500,000" = "3 500 000"; "22-35" stays two
+numbers), joins words a PDF splits, tolerates one typo per long word (OCR), and
+falls back to the closest wording, which is labelled *Closest match*. A passage
+it can't find is shown as text with *Couldn't pinpoint…*, never as a wrong
+highlight. A PDF is searched from the page Gemini named, then its neighbours,
+then the rest; scanned pages are only read near the page Gemini named. Which
+passage belongs to a field survives reordering, deleting, adding and editing
+list items (`js/evidence.js` matches items to the extraction by their text).
+
+**The side panel** (`js/sources.js`, a bottom sheet on phones and tablets). The
+passages are listed as cards; the picked one is shown in its file, zoomed so it
+fills the viewer's width, with the field's other passages in the same file
+marked more lightly. The viewer (`js/viewport.js`) has no scroll bars: the
+mouse wheel or a pinch zooms around the pointer, dragging moves the page, − / +
+zoom, and with the viewer focused the arrow keys move, + / − zoom and 0 fits the
+width. A PDF page is redrawn sharp at every zoom. The Save / Copy / PDF card is
+hidden while checking, so the source gets the whole column.
+
+**Brief files** (`js/docview.js`). A full-screen view over the dimmed page: a tab
+per file (with how many passages the summary used from it), every PDF page
+drawn as it scrolls into view, images and text in full. Every passage the
+summary used is marked in yellow; clicking one opens a card with the parts of
+the summary it supports (as they read now) and **Show in summary**, which closes
+the view, turns on checking and opens that field. The search box (Enter / Shift+Enter
+for next / previous) marks every match in blue, ignoring case, accents and
+punctuation; scanned pages become searchable once they have been read.
+
+**Libraries.** pdf.js 4.10.38 and Tesseract.js 5.1.1 are loaded from jsDelivr the
+first time they're needed, pinned and checked with SRI (`LIB` in `sources.js`).
+pdf.js is pre-loaded when checking starts on a brief with a PDF; Tesseract
+downloads about 10 MB (engine and language data) the first time an image or
+scan is read, then reads a page in a few seconds. The page's CSP allows
+`https://cdn.jsdelivr.net` and `data:` in `connect-src` for them.
+
+**Versions.** The service sends passages from 1.6.0 (one per value) and several
+per value, notes included, from 1.7.0. Each entry also carries its first
+passage at the top level, so pages and services of either version work
+together. A draft extracted before 1.6.0 has no **Check sources** button.
 
 ---
 
@@ -419,12 +496,13 @@ Render → **New → Web Service** → Docker, root `render/gemini-pdf`, health 
   similarly named variables, which helps spot a typo.
 - `GEMINI_MODEL` should be `auto` (or unset), which uses the newest Flash-Lite model.
 
-**After updating the proxy's code** (it is at version 1.5.0), follow the deploy
+**After updating the proxy's code** (it is at version 1.7.0), follow the deploy
 checklist in [`render/gemini-pdf/README.md`](render/gemini-pdf/README.md#deploying-to-render):
 proxy first, page second. In particular, set `LARK_BASE_TOKEN` and `LARK_TABLE_ID`
-on the service before deploying 1.5.0, or it won't start. When it is live, run
+on the service before deploying 1.5.0 or later, or it won't start. When it is live, run
 `npm run check:proxy`; after that `SERVICES.gemini.min` in `js/config.js` can be
-raised to `1.5.0`.
+raised (it is `1.4.0`; *Check sources* needs 1.6.0, and shows one passage per value
+until 1.7.0, but nothing breaks on an older service: the button just doesn't appear).
 
 ### 2. Point the page at it
 
@@ -507,15 +585,15 @@ variable (see `tech/lark-proxy/README.md`).
    value and bullet Gemini can point back to. Click one to see the passages of
    the brief it was based on, even when the summary words it differently or
    combines several of them (up to three, e.g. two sentences on different
-   pages). Each is highlighted in your own file (PDF page, screenshot,
-   Word/Excel/e-mail text, or what you typed); pick a passage to jump to it.
-   Use it to see where each point came from in a long brief, and to
-   double-check budgets, dates and KPIs. A dimmed value has no passage: it's a
-   default, or you added it.
-   Click **Done checking** (or press Esc) to edit again. It works on a new
-   brief until you save it; filed briefs are assumed checked. After a page
-   reload the quote still shows, and **Add “file” again** brings the
-   highlight back.
+   pages). The source opens zoomed so the passage fills the viewer; **scroll
+   to zoom, drag to move**, or use − / +. Pick another passage to jump to it.
+   A dimmed value has no passage: it's a default, or you added it. Click
+   **Done checking** (or press Esc) to edit again.
+   **Brief files** (next to it) opens the whole brief over the page: every
+   file in full, a search box, and every passage the summary used marked in
+   yellow. Click one to see which parts of the summary it became, and **Show
+   in summary** to jump there. Both work on a new brief until you save it;
+   filed briefs are assumed checked. More in [Check sources](#check-sources).
 4. **Copy for group chat** → paste it in the chat. **Download PDF** for a file.
 5. **Save to Lark Base** → check the summary → **Save to Lark**. You land on
    **All briefs**, with your new brief highlighted.
@@ -592,13 +670,20 @@ proxy locally, 8001 the Lark proxy locally.
 ## Testing
 
 ```bash
-npm test                 # offline: brief, rows, schema, errors, and ops.js against a fake Lark
+npm test                 # offline: brief, rows, schema, errors, match, evidence, and ops.js against a fake Lark
 npm run check:shell      # import map lists every js/*.js, shared files unedited, watchdog, syntax, no secrets
 npm run check:proxy      # GET / on both hosted services: version >= min, headers allowed (read-only)
 npm run check:live       # read-only against the live table: columns, and every payload the page would write
 npm run check:e2e        # every write, on a TEST COPY of the table only (see below)
 npm run test:proxy       # the Gemini proxy's own unit tests (offline, Gemini mocked)
 ```
+
+*Check sources* has no automated browser test: check it by hand on a local page
+(`npm run serve`, log in, extract a real brief) with a text PDF, a scanned PDF, a
+screenshot, a Word file and typed text. `npm test` covers the matching
+(`tests/match.test.mjs`) and which passages belong to a field after edits
+(`tests/evidence.test.mjs`); `npm run test:proxy` covers the service side
+(validation, re-pointing list items, the recitation retry).
 
 `check:live` and `check:e2e` need `LARK_APP_ID` and `LARK_APP_SECRET` in
 `tools/.env` (or the environment); they get an app token straight from Lark, and the Lark
@@ -662,6 +747,14 @@ changed and every other row is untouched.
   sentence at display time (a code table in `js/errors.js`, tested so every code has a message).
 - **Stateless and cheap.** Both proxies are stdlib-only Python containers with
   no database. Lark is the database.
+- **Sources from the same call, found by the page.** Gemini names the passages
+  it used while it writes the summary (no second call, no second upload), copied
+  word for word; the page then finds them in the user's own file. Gemini is never
+  trusted for positions, so a passage it misquotes is labelled, not misplaced.
+- **Files stay in the tab.** Check sources needs the files, but keeping client
+  documents in browser storage on a shared origin isn't worth it: they live in
+  memory until the brief is saved or the tab closes; the passages themselves (a few
+  KB of text) survive a reload with the draft.
 
 **UX**
 
@@ -775,6 +868,8 @@ changed and every other row is untouched.
 | ------- | ---------- |
 | A yellow bar: "**Setup needed:** add your Gemini API key to start extracting briefs." | The extraction service has no shared key and you haven't added yours. Click the bar and paste your key in Settings. |
 | No **Check sources** button | The brief was extracted by a service older than 1.6.0, or it's a filed brief (the button is for new drafts only). |
+| Brief files: "Add “file” again" | The page was reloaded since the extraction, so the file isn't in memory any more. Add the same file (same name) and it opens. |
+| The source viewer moves or zooms instead of scrolling the panel | That's the viewer: the wheel zooms and dragging moves the page. Scroll the panel with the wheel outside the grey viewer, or with its scroll bar. |
 | Check sources shows only one passage per value | The extraction service is 1.6.0. Deploy 1.7.0 (`render/gemini-pdf`) for several passages per value, and for notes. |
 | Check sources: "Couldn't load the document viewer" | The page couldn't reach `cdn.jsdelivr.net` (offline, or a blocker). Allow it and click the field again; the quote itself always shows. |
 | Check sources: "Couldn't pinpoint this passage in the document" | Gemini's quote isn't word-for-word in the file (or is in an image inside a Word file or e-mail). Read the quote and check that part of the brief yourself. |
@@ -826,7 +921,9 @@ changed and every other row is untouched.
 ## Maintenance recipes
 
 **Tune the wording or rules**: edit `render/gemini-pdf/prompt.md` and redeploy
-the proxy. No page changes needed.
+the proxy. No page changes needed. The *# Evidence* section there decides what
+*Check sources* gets; `MAX_EVIDENCE` and `MAX_PASSAGES` in `brief_spec.py` cap it
+(fewer passages make extractions faster).
 
 **Add a field** (e.g. "Competitors"):
 
@@ -838,6 +935,10 @@ the proxy. No page changes needed.
 5. `js/schema.js` → `COLUMNS` (name, type, options), then `js/rows.js` (`briefCells()`
    and `fromRecord()`); `npm test` shows what moved. Run `python tools/setup_lark_table.py --apply`
    to create the column (it reads the list from `schema.js`).
+6. For *Check sources*: add its path to `EVIDENCE_SCALARS` or `EVIDENCE_LISTS` in
+   `brief_spec.py` and to the field list under *# Evidence* in `prompt.md`, and a
+   label to `LABELS` in `js/sources.js` (lists also go in `LISTS` in `js/evidence.js`
+   and `EV_LISTS` in `js/app.js`).
 
 **Rename a Lark column**: rename it in `js/schema.js` (`COLUMNS`) and in Lark at the
 same time. Until both match, Fetch switches saving off and the callout says

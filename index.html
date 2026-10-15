@@ -89,7 +89,7 @@
       var files = ["js/config.js", "js/icons.js", "js/brief.js", "js/ui.js", "js/cells.js", "js/errors.js", "js/schema.js",
                    "js/tables.js", "js/verify.js", "js/rows.js", "js/ops.js", "js/settings.js", "js/net.js", "js/auth.js",
                    "js/extract.js", "js/lark.js", "js/doc.js", "js/pdf.js", "js/match.js", "js/evidence.js",
-                   "js/sources.js", "js/settings-view.js", "js/app.js"];
+                   "js/viewport.js", "js/sources.js", "js/docview.js", "js/settings-view.js", "js/app.js"];
       var map = { imports: {} };
       files.forEach(function (f) { map.imports[new URL(f, location.href).href] = new URL(f + "?v=" + v, location.href).href; });
       document.write('<link rel="stylesheet" href="css/theme.css?v=' + v + '">');
@@ -259,6 +259,9 @@
           <div class="paper-tools" id="checkBar" hidden>
             <button type="button" class="btn btn-sm btn-tonal" id="checkBtn" aria-pressed="false">
               <span class="i" data-icon="search" aria-hidden="true"></span> <span class="label">Check sources</span>
+            </button>
+            <button type="button" class="btn btn-sm btn-ghost" id="docsBtn" title="Read the whole brief, search it, and see what the summary took from it">
+              <span class="i" data-icon="file" aria-hidden="true"></span> Brief files
             </button>
             <span class="hint" id="checkHint" hidden>Click an underlined value to see where it came from. Editing is paused.</span>
           </div>

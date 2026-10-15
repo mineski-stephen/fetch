@@ -160,6 +160,20 @@ export function find(index, quote, { min = 0.75 } = {}) {
   return best && best.score >= min ? best : null;
 }
 
+/**
+ * Every place a search phrase occurs (normalised, so case, accents, punctuation and number
+ * formatting don't matter): [{ start, end }] in hay positions, at most `limit`.
+ */
+export function findAll(index, phrase, limit = 2000) {
+  const q = norm(phrase);
+  const out = [];
+  if (!q || !index.hay) return out;
+  for (let at = index.hay.indexOf(q); at >= 0 && out.length < limit; at = index.hay.indexOf(q, at + q.length)) {
+    out.push({ start: at, end: at + q.length });
+  }
+  return out;
+}
+
 // ---- mapping a match back to the document ---------------------------------------
 
 /** The units a match covers: [{ unit, from, to }] (character offsets in the unit's text, to exclusive). */

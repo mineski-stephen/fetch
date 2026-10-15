@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildIndex, norm, find, spanUnits, rects, pageOrder } from "../js/match.js";
+import { buildIndex, norm, find, findAll, spanUnits, rects, pageOrder } from "../js/match.js";
 
 const doc = (text) => buildIndex([{ text }]);
 const found = (index, span) => index.units[0].text.slice(...Object.values(spanUnits(index, span)[0]).slice(1));
@@ -64,4 +64,13 @@ test("pages are searched from the one Gemini named, then its neighbours", () => 
   assert.deepEqual(pageOrder(1, 3), [1, 2, 3]);
   assert.deepEqual(pageOrder(0, 3), [1, 2, 3]);
   assert.deepEqual(pageOrder(9, 2), [1, 2]);
+});
+
+test("findAll finds every occurrence of a search phrase, ignoring case and punctuation", () => {
+  const index = doc("Red ornaments only. RED-ornaments are required; red ornaments, red ornaments!");
+  const all = findAll(index, "red ornaments");
+  assert.equal(all.length, 4);
+  assert.equal(found(index, all[1]), "RED-ornaments");
+  assert.deepEqual(findAll(index, ""), []);
+  assert.equal(findAll(index, "red", 2).length, 2);
 });

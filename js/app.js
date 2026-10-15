@@ -18,6 +18,7 @@ import * as lark from "./lark.js";
 import * as paper from "./doc.js";   // not "doc": that name is used for the open brief below
 import * as E from "./evidence.js";
 import * as sources from "./sources.js";
+import * as docs from "./docview.js";
 import * as pdf from "./pdf.js";
 import { createSettingsView, fmtLeft, fmtTime } from "./settings-view.js";
 import * as settings from "./settings.js";
@@ -1028,8 +1029,57 @@ function openSource(path, el) {
   }
 }
 
+// The summary field an evidence entry names, as it is now: list items may have moved or changed.
+const EV_LISTS = ["objectives", "target_audience", "kpis", "key_dates", "scope_of_work", "notes"];
+function currentPathOf(field) {
+  const d = S.draft, m = S.doc?.model;
+  if (!d || !m) return null;
+  const [name, i] = field.split(".");
+  if (EV_LISTS.includes(name) && /^\d+$/.test(i ?? "")) {
+    for (let j = 0; j < (m[name] || []).length; j++) {
+      if (E.resolve(`${name}.${j}`, m, d.original, d.evidence).field === field) return `${name}.${j}`;
+    }
+    return null;
+  }
+  return field;
+}
+
+/** The element in the document that shows a path (a field may be a chip or a pair of halves). */
+function fieldElement(path) {
+  if (!path) return null;
+  const q = CSS.escape(path);
+  return $(`#paper [data-path="${q}"], #paper [data-enum="${q}"]`) || $(`#paper [data-path^="${q}."]`)
+    || (path === "due_date" ? $("#paper [data-date]") : null);
+}
+
+/** { label, text, canReveal } of a summary field, for the brief files' cards. */
+function describeField(field) {
+  const d = S.draft, m = S.doc?.model || d.model;
+  const path = currentPathOf(field);
+  const get = (p) => p.split(".").reduce((o, k) => (o == null ? o : o[k]), m);
+  const textOf = (v) => (v && typeof v === "object" ? Object.values(v).filter(Boolean).join(" - ") : String(v ?? ""));
+  let text;
+  if (!path) text = `${textOf(field.split(".").reduce((o, k) => o?.[k], d.original))} (since removed or rewritten)`;
+  else if (path === "due_date") text = [m.due_date.date ? B.fmtDate(m.due_date.date, true) : "", m.due_date.note].filter(Boolean).join(" - ");
+  else if (path === "requirement") text = S.doc?.requirement || m.requirement?.type || "";
+  else if (path === "vat") text = { YES: "VAT inclusive", NO: "VAT exclusive" }[S.doc?.vat || m.vat?.applies] || "";
+  else text = textOf(get(path));
+  return { label: sources.fieldLabel(path || field), text, canReveal: !!fieldElement(path) };
+}
+
+/** Show a summary field: checking mode on, scrolled to it, its source open. */
+function revealField(field) {
+  const el = fieldElement(currentPathOf(field));
+  if (!el) return;
+  if (!S.checking) setChecking(true);
+  const target = fieldElement(currentPathOf(field));   // re-rendered by checking mode
+  target.scrollIntoView({ block: "center", behavior: reduceMotion() ? "auto" : "smooth" });
+  openSource(target.dataset.path || target.dataset.enum || target.dataset.date, target);
+}
+
 function wireSources() {
   $("#checkBtn").onclick = () => setChecking(!S.checking);
+  $("#docsBtn").onclick = () => S.draft && docs.open({ draft: S.draft, describe: describeField, onReveal: revealField });
   $("#srcClose").onclick = () => { setChecking(false); $("#checkBtn").focus(); };
   $("#srcDialogClose").onclick = () => $("#srcDialog").close();
   $("#srcDialog").addEventListener("click", (e) => { if (e.target === e.currentTarget) e.currentTarget.close(); });
