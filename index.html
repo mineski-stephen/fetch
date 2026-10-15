@@ -42,7 +42,9 @@
         } catch (e) { /* leave it for the next load */ }
         move(local, "bx.draft", "fetch.draft", json);
         move(local, "bx.etaFactor.lite", "fetch.etaFactor", function (t) { var n = Number(t); return isFinite(n) && n > 0 ? n : undefined; });
-        try { local.removeItem("bx.filedBy"); local.removeItem("bx.briefsCache"); } catch (e) { /* refetched anyway */ }
+        // The list of briefs is refetched anyway. "fetch.briefsCache" (Oct 2026) held attachment links and
+        // survived a logout of the session; it is now one "fetch.cache.<app>:<table>" key, dropped when a session ends.
+        try { local.removeItem("bx.filedBy"); local.removeItem("bx.briefsCache"); local.removeItem("fetch.briefsCache"); } catch (e) { /* refetched anyway */ }
       }
       if (session) {
         move(session, "bx.composeText", "fetch.composeText", text);
@@ -55,6 +57,11 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
+  <!-- connect-src lists everywhere the page may send a request (this alone stops a login token being
+       sent anywhere else): itself, the two services, Google (to test a Gemini key), and this computer
+       (for the ?gemini= / ?lark= test addresses, which only work on a local page anyway). -->
+  <meta http-equiv="Content-Security-Policy" content="connect-src 'self' https://lark-proxy-dwiw.onrender.com https://gemini-pdf-6wp4.onrender.com https://generativelanguage.googleapis.com http://127.0.0.1:* http://localhost:*; object-src 'none'; base-uri 'self'; form-action 'self'">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Fetch · Mineski</title>
   <meta name="description" content="Fetch turns client briefs into a standardised project brief summary, ready for the team and saved to Lark.">
@@ -76,27 +83,35 @@
   <script>
     (function () {
       var v = window.APP_BUILD = Date.now().toString(36);
-      var files = ["js/config.js", "js/icons.js", "js/brief.js", "js/ui.js", "js/settings.js", "js/auth.js", "js/extract.js",
-                   "js/lark.js", "js/doc.js", "js/pdf.js", "js/settings-view.js", "js/app.js"];
+      var files = ["js/config.js", "js/icons.js", "js/brief.js", "js/ui.js", "js/cells.js", "js/errors.js", "js/schema.js",
+                   "js/tables.js", "js/verify.js", "js/rows.js", "js/ops.js", "js/settings.js", "js/net.js", "js/auth.js",
+                   "js/extract.js", "js/lark.js", "js/doc.js", "js/pdf.js", "js/settings-view.js", "js/app.js"];
       var map = { imports: {} };
       files.forEach(function (f) { map.imports[new URL(f, location.href).href] = new URL(f + "?v=" + v, location.href).href; });
       document.write('<link rel="stylesheet" href="css/theme.css?v=' + v + '">');
       document.write('<link rel="stylesheet" href="css/mineski-base.css?v=' + v + '">');
       document.write('<link rel="stylesheet" href="css/app.css?v=' + v + '">');
       document.write('<script type="importmap">' + JSON.stringify(map) + '<\/script>');
+      // Developers only: ?preview on a local page runs on sample data, with Lark and the extraction
+      // service simulated (tests/preview-shim.js). Nothing is sent anywhere.
+      if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname) && /[?&]preview(&|=|$)/.test(location.search)) {
+        document.write('<script src="tests/preview-shim.js?v=' + v + '"><\/script>');
+      }
     })();
   </script>
 </head>
 <body>
-  <a class="skip" href="#app">Skip to content</a>
+  <a class="skip" href="#main">Skip to content</a>
   <div class="bg" aria-hidden="true"></div>
 
   <header class="topbar">
     <a class="brand" href="#/" aria-label="Fetch - new brief">
       <img class="brand-mark" src="img/fetch-icon.svg?v=1.2.1" alt="" width="34" height="34">
       <span class="brand-name">Fetch</span>
+      <span class="env" id="envBadge" hidden></span>
     </a>
     <div class="top-right">
+      <a class="override-badge" id="overrideBadge" href="#/settings" hidden>Override</a>
       <nav class="nav" aria-label="Main">
         <a href="#/" data-nav="compose" class="needs-login">New brief</a>
         <a href="#/briefs" data-nav="briefs" class="needs-login">All briefs <span class="count" id="briefCount" hidden></span></a>
@@ -112,14 +127,22 @@
     </div>
   </header>
 
-  <main id="app" tabindex="-1">
+  <main id="main" tabindex="-1">
     <div class="banner callout callout-err" id="blockNote" hidden role="alert">
       <span class="i" data-icon="alert" aria-hidden="true"></span>
       <div>
-        <p><b>Fetch can't reach its extraction service.</b> An ad blocker or privacy extension is probably blocking it.</p>
-        <p>Allow <code id="blockHost">gemini-pdf-6wp4.onrender.com</code> in your blocker (or pause it on this page), then reload.</p>
+        <p><b>Fetch can't reach its connection service.</b> An ad blocker or privacy extension is probably blocking it.</p>
+        <p>Allow <code id="blockHost">lark-proxy-dwiw.onrender.com</code> in your blocker (or pause it on this page), then reload.</p>
       </div>
       <button type="button" class="btn btn-sm" id="reloadBtn">Reload</button>
+    </div>
+
+    <div class="banner callout callout-warn" id="writeNote" hidden role="status">
+      <span class="i" data-icon="alert" aria-hidden="true"></span>
+      <div>
+        <p id="writeNoteText"></p>
+        <ul id="writeNoteList"></ul>
+      </div>
     </div>
 
     <!-- 0. Logged out --------------------------------------------------------->
@@ -137,7 +160,7 @@
 
     <section class="view view-busy" data-view="busy" aria-label="Logging in">
       <span class="spinner" aria-hidden="true"></span>
-      <p>Logging you in…</p>
+      <p id="busyText">Logging you in…</p>
     </section>
 
     <!-- 1. Compose ---------------------------------------------------------->
@@ -383,13 +406,25 @@
               <button type="button" class="btn btn-sm" id="wakeGemini">Wake up</button>
             </li>
             <li>
+              <span class="dot" id="larkProxyDot"></span>
+              <span class="status-text"><b>Connection service</b><span id="larkProxyStatus">Not checked yet</span></span>
+              <button type="button" class="btn btn-sm" id="wakeLark">Wake up</button>
+            </li>
+            <li>
               <span class="dot" id="larkDot"></span>
               <span class="status-text"><b>Lark Base</b><span id="larkStatus">Not checked yet</span></span>
               <button type="button" class="btn btn-sm" id="refreshLark">Refresh</button>
             </li>
           </ul>
+          <div class="callout callout-warn" id="schemaBox" hidden role="status">
+            <div>
+              <p>These parts of the briefs table need fixing. Tell the tool owner.</p>
+              <ul id="schemaList"></ul>
+            </div>
+          </div>
           <details class="advanced" id="advancedBox">
             <summary>Advanced: service addresses</summary>
+            <p class="set-sub">For testing on this computer only. Leave a field empty to use the hosted service.</p>
             <label class="field"><span>Extraction service URL</span><input type="url" id="setGeminiUrl" spellcheck="false"></label>
             <label class="field"><span>Lark proxy URL</span><input type="url" id="setLarkUrl" spellcheck="false"></label>
             <label class="field"><span>Lark table link</span><input type="url" id="setLarkTable" spellcheck="false"><small>Copy it from the table's address bar in Lark (…/base/…?table=…). Leave a field empty to use the default.</small></label>
@@ -421,6 +456,7 @@
       <p class="form-error" id="saveError" hidden role="alert"></p>
       <footer class="modal-actions">
         <button type="button" class="btn btn-ghost" id="saveCancel">Cancel</button>
+        <button type="button" class="btn" id="saveSkip" hidden>Save without these files</button>
         <button type="submit" class="btn btn-primary" id="saveConfirm"><span class="label">Save to Lark</span></button>
       </footer>
     </form>

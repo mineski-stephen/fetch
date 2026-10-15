@@ -465,3 +465,6 @@ div.ed { display: block; }
   .ed { background: none !important; box-shadow: none !important; }
   .ed:empty::before { content: "Not specified"; }
 }
+
+/* ---- a card whose Done change is waiting on Lark: dimmed, not clickable twice ---------- */
+.rcard-wrap.is-working { opacity: .6; pointer-events: none; }

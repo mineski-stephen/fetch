@@ -19,6 +19,10 @@ No training needed: log in with Lark, and the landing page is one box that says
 "Upload your brief files". Only people who can open the team's briefs table in
 Lark can use Fetch.
 
+> **Owner to do (once):** Fetch's local address is now `http://127.0.0.1:9124/`. Add it
+> under *Security Settings → Redirect URLs* on the Lark app, or logging in from a local
+> copy stops on Lark's error 20029. See [Lark login](#lark-login).
+
 ---
 
 ## Contents
@@ -32,6 +36,7 @@ Lark can use Fetch.
 - [Using it (for the BD team)](#using-it-for-the-bd-team)
 - [Settings](#settings)
 - [Local development](#local-development)
+- [Testing](#testing)
 - [Design decisions](#design-decisions)
 - [Security & privacy](#security--privacy)
 - [Limitations](#limitations)
@@ -66,7 +71,10 @@ Lark can use Fetch.
 
 0. The user **logs in with Lark** (see [Lark login](#lark-login)). As soon as
    the page opens it **wakes both Render services** (free instances sleep when
-   idle), and once logged in it **loads the briefs list** from Lark in the background.
+   idle; the Settings screen shows each one's state), and once logged in it
+   **loads the briefs list** from Lark in the background: every row, never
+   through a view, and it checks the table's columns first. A list it can't read
+   completely is an error, never a shorter list.
 1. The user drops files and/or types the brief. The page converts odd image
    formats, shrinks huge screenshots, and uploads everything to the **Gemini
    proxy** with real upload progress, together with the user's Lark login. If
@@ -80,24 +88,31 @@ Lark can use Fetch.
 4. The page renders it as an **editable document** (following
    `project-brief-template.md`), generates the **chat message**, and can
    produce a **PDF**. Every edit updates one JSON model that feeds all outputs.
-5. When the user clicks **Save to Lark Base** and confirms, the page adds a
-   row through the **Lark proxy**, as the signed-in user: readable columns plus
-   a `Brief JSON` column, with *Filed by* set to their Lark name.
+5. When the user clicks **Save to Lark Base** and confirms, the page uploads
+   any attachments first (if one fails, nothing is saved until the person
+   chooses *Try again* or *Save without these files*), then adds a row through
+   the **Lark proxy**, as the signed-in user: readable columns plus a
+   `Brief JSON` column, with *Filed by* set to their Lark name. It then reads
+   the row back from Lark and says "All N fields checked in Lark." (or lists
+   what Lark holds differently).
 6. The **All briefs** view reads every row back, rebuilds each document from
-   its JSON, and lets anyone reopen, edit and **Save changes**. Briefs marked
+   its JSON, and lets anyone reopen, edit and **Save changes**. A save re-reads
+   the row, writes **only the cells that changed**, and refuses if one of those
+   cells was changed in Lark since the page loaded it. Briefs marked
    **Done** move to a collapsed *Done* section; any brief can be deleted.
 
 ---
 
 ## Lark login
 
-Fetch works the same way as Polaris (`tech/universe-updater`): people log in
+Fetch works the same way as Polaris (`../polaris`): people log in
 with their own Lark account, and every Lark call runs **as that person**
 (a `user_access_token`), not as the app.
 
 ```
  Log in with Lark ─▶ accounts.larksuite.com/…/authorize  (PKCE challenge + state)
-                  ◀─ back to Fetch with ?code=…&state=…
+                  ◀─ back to Fetch with ?code=…&state=…   (the code is removed from the address bar at once)
+ wake the Lark proxy if it's asleep, then (once, 45 s limit, never retried):
  POST {lark proxy}/proxy?url=…/authen/v2/oauth/token   {code, code_verifier}   (no secret)
       the proxy adds the app secret ─▶ Lark ─▶ { access_token, expires_in: ~2 h }
  Every Lark call:            Authorization: Bearer <user token>  (through the Lark proxy)
@@ -118,22 +133,33 @@ Lark. Lark applies each user's own permissions, so:
 
 **How long a login lasts.** About 2 hours (Lark gives no refresh token). The
 top bar shows the time left, turning amber in the last 10 minutes, and a
-reminder appears 5 minutes before the end. Fetch won't start an extraction
-with under 2 minutes left, or a save with under 1 minute. When a login ends,
-the login screen appears and returns to the same page afterwards. The unsaved
-draft and typed text are kept; files picked for upload have to be added again.
+warning stays on screen from 5 minutes before the end ("Your login ends at
+4:30 PM."). Fetch won't start an extraction with under 2 minutes left, or a
+save, Done or Delete with under 1 minute ("Your login is about to end, so this
+wasn't sent."). The clock never ends the login under a running save or
+extraction: it ends when that work settles. When a login ends (or Lark says it
+has), the login screen appears and returns to the same page afterwards, the
+cached list of briefs is dropped, and everything in progress is kept: the
+unsaved draft, typed text and unsaved edits to saved briefs. Files picked for
+upload have to be added again.
+
+**Read-only logins.** If the login's scope doesn't include `bitable:app`, saving
+is switched off with "Your login can only read the tables. Log in again to allow
+saving."
 
 **Where the token lives.** In `sessionStorage`: this tab only, gone when the
 tab closes, never in a URL. A new tab means logging in again (one click if
-you're already signed in to Lark). *Log out* (Settings → Account) forgets the
-token and the cached briefs list; you stay logged in to Lark itself.
+you're already signed in to Lark). *Log out* (Settings → Account) is local only
+(Lark has no way to revoke a token): it forgets the token and the cached briefs
+list on this computer; you stay logged in to Lark itself, and the token itself
+stays valid until it expires.
 
 **One-time setup on the Lark app** (`cli_aab0716138b8ded3`, the same app as
 Polaris, in the [Lark Developer Console](https://open.larksuite.com/app)):
 
 | Setting | Value |
 | ------- | ----- |
-| *Security Settings → Redirect URLs* | Every address Fetch is opened from, exactly, with the trailing slash: `http://localhost:8770/` for local testing, and the GitHub Pages address, e.g. `https://<user>.github.io/<repo>/`. The login screen checks its own address on load and says if it isn't registered (Lark error 20029). |
+| *Security Settings → Redirect URLs* | Every address Fetch is opened from, exactly, with the trailing slash: **`http://127.0.0.1:9124/`** for local testing (Fetch's port; **the app owner has to add it, it isn't registered yet**), and the GitHub Pages address, e.g. `https://<user>.github.io/<repo>/`. Use `127.0.0.1`, never `localhost`: they are different origins. The old `http://localhost:8770/` and `http://localhost:9123/` entries can go (9123 is Polaris's port). The login screen checks its own address once the Lark proxy is awake and says if it isn't registered (Lark error 20029). |
 | *Permissions & Scopes* | `bitable:app` enabled for **user identity** (already on for Polaris). |
 | *Availability* | Everyone who should use Fetch (otherwise error 20010 at login). |
 
@@ -151,21 +177,27 @@ project-brief/                     ← the repository root = the website root
 │   ├── theme.css                  Fetch's colors, light and dark (copied unedited from the Mineski design language)
 │   ├── mineski-base.css           Every shared component (copied unedited; never edit it here)
 │   └── app.css                    Fetch's own parts on tokens: drop zone, loader dog, the white paper, phone bar
-├── js/                            ES modules, loaded through the import map in index.html
-│   ├── config.js                  ★ Defaults for everyone (service URLs, Lark table, Next Steps list)
+├── js/                            ES modules, loaded through the import map in index.html (every one is listed there)
+│   ├── config.js                  ★ Everything a maintainer changes: APP.env, services, Lark app, table links, rules
+│   ├── schema.js                  ★ The Lark table's columns (one list), the load-time check, what blocks a write
 │   ├── app.js                     Routing and screens (incl. Next steps & Attachments cards)
-│   ├── settings.js                Per-browser settings (Gemini key, local overrides) and cfg()
-│   ├── settings-view.js           The Settings screen
+│   ├── net.js                     Services (wake, status, version check, ad-blocker detection) and the Lark call
 │   ├── auth.js                    Lark login (OAuth + PKCE), the session and its clock
-│   ├── brief.js                   Brief model: normalise, dates, Markdown, chat text
+│   ├── settings.js                Per-browser settings (Gemini key, local overrides) and cfg()
+│   ├── settings-view.js           The Settings screen (a factory that takes a ctx)
+│   ├── extract.js                 Talking to the Gemini proxy: file preparation, upload, wait estimate
+│   ├── lark.js                    The page's Lark client: adds the token and the table, keeps the schema check
+│   ├── ops.js                     Every Lark read and write (load, create, save, Done, delete), as functions of `call`
+│   ├── rows.js                    Brief <-> Lark row mapping, changed cells, select values (pure)
+│   ├── tables.js                  Table links, fields, records, create/update/delete (take `call`)
+│   ├── verify.js                  Read-back after a write, and the re-read before an update (take `call`)
+│   ├── cells.js                   Reading and comparing cell values, dates (pure)
+│   ├── errors.js                  Errors as facts, `describe(err)` (one sentence), service version check (pure)
+│   ├── brief.js                   Brief model: normalise, dates, Markdown, chat text (pure)
 │   ├── doc.js                     Editable document renderer (click-to-edit)
 │   ├── pdf.js                     PDF export (pdfmake, lazy-loaded from cdnjs)
-│   ├── lark.js                    Lark Base client (as the signed-in user): rows, column mapping, file uploads
-│   ├── extract.js                 Talking to the Gemini proxy: wake-up, upload, wait estimate
 │   ├── ui.js                      Shared helpers: toasts, menus, sheets, busy buttons, theme (copied unedited)
 │   └── icons.js                   Shared inline SVG icons (copied unedited)
-├── styles.css, *.js (root)        Old copies kept for ONE release only, so a cached old index.html
-│                                  doesn't 404 during the switch. Delete them in the next release.
 ├── manifest.webmanifest           App name + icons for "Add to Home Screen"
 ├── .nojekyll                      Tells GitHub Pages to serve files as-is
 ├── img/
@@ -174,11 +206,26 @@ project-brief/                     ← the repository root = the website root
 │   └── fetch-icon-32/180/512.png  PNG fallbacks (browser tab, iPhone home screen, app icon)
 ├── README.md                      ← you are here
 ├── project-brief-template.md      The summary template the document follows
+├── package.json                   No dependencies: just the script names (`npm run serve`, `npm test`, `npm run check:shell`...)
+├── .gitignore                     Keeps tools/.env (the Lark app secret) out of the repository
 ├── render/
 │   └── gemini-pdf/                The Gemini proxy (Render web service) — see its README
+├── tests/
+│   ├── *.test.mjs                 Offline tests of the pure modules and of ops.js against a fake Lark (`npm test`)
+│   ├── fake-lark.mjs              An in-memory stand-in for the Lark endpoints Fetch uses
+│   ├── check-live.mjs             Read-only check of the live table (`npm run check:live`)
+│   ├── check-proxy.mjs            GET / of both services: version, headers (`npm run check:proxy`)
+│   ├── check-shell.mjs            Import map, shared files, watchdog, syntax, secrets (`npm run check:shell`)
+│   ├── e2e.mjs                    Every write, on a TEST COPY of the table only (`npm run check:e2e`)
+│   ├── lark-node.mjs              Direct Lark access for those scripts (app token from tools/.env)
+│   ├── preview-shim.js            `?preview` mode: answers the services from the sample data
+│   ├── preview-fixture.json       Made-up sample briefs and a canned extraction (no real data)
+│   └── make-preview-fixture.mjs   Regenerates that file (`npm run preview:fixture`)
 └── tools/
-    ├── setup_lark_table.py        Creates or repairs the Lark table's columns (re-runnable)
-    └── serve_web.py               Serves the page locally with caching disabled (for testing)
+    ├── setup_lark_table.py        Creates or repairs the Lark table's columns (re-runnable, dry run by default)
+    ├── export-spec.mjs            Prints the column list from js/schema.js for the setup script
+    ├── serve.py                   Serves the page on 127.0.0.1:9124 with caching disabled (for testing)
+    └── .env.example               Copy to tools/.env and fill in (git-ignored)
 ```
 
 ---
@@ -264,8 +311,9 @@ Filed 2 Oct 2026
 ## The Lark table
 
 Base **AM BD Universe** → table `tblG3XcLw2auB4lM`
-([open](https://mineskiglobal.sg.larksuite.com/base/NP7TbjwHNaTyLOsWafelN9wNgEd?table=tblG3XcLw2auB4lM&view=vewMIKkyNv)).
-The columns were created by `tools/setup_lark_table.py`:
+([open](https://mineskiglobal.larksuite.com/base/NP7TbjwHNaTyLOsWafelN9wNgEd?table=tblG3XcLw2auB4lM&view=vewMIKkyNv)).
+The columns are listed once, in `js/schema.js`; `tools/setup_lark_table.py` creates them from that list, and the
+page checks them against it on every load (see [Schema check](#schema-check)):
 
 | Column | Type | Notes |
 | ------ | ---- | ----- |
@@ -278,38 +326,73 @@ The columns were created by `tools/setup_lark_table.py`:
 | Budget Type | Single select | All-in · Baseline / Ballpark · To be confirmed · Not specified |
 | Proposal Submission | Single select | Paper pass only · Pitch / Presentation · Not specified |
 | Submission Details, Notes, Questions for Client, Summary | Text | |
-| Filed By | Text | Optional name entered in the save dialog (remembered per browser). |
+| Filed By | Text | Your Lark name (from your login), written when the brief is first saved. Never written blank. |
 | Source Files | Text | Names of the uploaded files. |
 | Requirement Type | Single select | RFP (Request for Proposal: pitch and propose) · RFQ (Request for Quotation: quotation only) · RFI (Request for Information: just asking, nothing to submit). Gemini detects it, and the choice is pre-selected in the **Requirement & VAT** card beside the document, with Gemini's one-line reason; the user can change it. Saved to Lark only, not in the document. |
-| VAT | Multi-select (one value used) | **VAT Inc.** (prices include 12% VAT) or **VAT Ex.** (VAT-exclusive, or 0% for foreign / exempt clients). Gemini follows what the brief explicitly says first; if it says nothing, a local client means VAT Inc. and a foreign one VAT Ex. The pre-selected choice always agrees with the note shown under it. Labels: `VAT_CHOICES` in `js/config.js`. |
-| Next Steps | Multi-select | Picked in the **Next steps** card beside the document (AM Assignment, File Project Brief and trigger Lark GC, PM Assignment, Pitch Deck, Other, or a custom step, which Lark adds as a new option). Saved to Lark only, never part of the document, PDF or chat text. The default list is `NEXT_STEP_OPTIONS` in `js/config.js`. |
-| Attachments | Attachment | The uploaded brief files (plus typed text as `Brief text.txt`), uploaded on save through the Lark proxy (Drive media API, `drive:drive` scope). Files can be added or removed in the **Attachments** card. Limit per file: `LARK_ATTACH_MAX_MB` (10 MB, the Lark proxy's default `MAX_BODY_BYTES`; Lark allows up to 20 MB). Files from before a page reload must be re-added. |
+| VAT | Multi-select (one value used) | **VAT Inc.** (prices include 12% VAT) or **VAT Ex.** (VAT-exclusive, or 0% for foreign / exempt clients). Gemini follows what the brief explicitly says first; if it says nothing, a local client means VAT Inc. and a foreign one VAT Ex. The pre-selected choice always agrees with the note shown under it. Labels: `RULES.vatChoices` in `js/config.js`. A value in Lark that isn't one of these is kept, and the card says so ("Lark has “…” here. It stays unless you pick one."). |
+| Next Steps | Multi-select | Picked in the **Next steps** card beside the document (AM Assignment, File Project Brief and trigger Lark GC, PM Assignment, Pitch Deck, Other, or a custom step, which Lark adds as a new option: this is the one column where that's on purpose). Saved to Lark only, never part of the document, PDF or chat text. The default list is `RULES.nextSteps` in `js/config.js`. |
+| Attachments | Attachment | The uploaded brief files (plus typed text as `Brief text.txt`), uploaded on save through the Lark proxy (Drive media API, always with the table's `bitablePerm`). The login asks only for the `bitable:app` scope; if uploads ever fail with a missing-permission message, add `drive:drive` to `LARK.scopes` in `js/config.js` and to the Lark app. Files can be added or removed in the **Attachments** card. Limit per file: `LARK.maxUploadMb` (10 MB, the Lark proxy's default `MAX_BODY_BYTES`; Lark allows up to 20 MB). Files from before a page reload must be re-added. Attachment links from Lark expire, so Fetch never keeps them. |
 | Done | Single select | **Yes** or **No**. Set from the page (right-click a card, or its ⋯ button → *Mark as Done* / *Mark as Not Done*) or in Lark. **Yes** moves the brief out of the main list into the collapsed **Done** section (newest filed first). **No** or empty keeps it in the list. New rows start as **No**. |
 | **Brief JSON** | Text | **The source of truth the page renders from. Don't edit it by hand.** |
 | Last Modified | Modified time | Automatic. |
 
-**Where edits belong.** The page renders each brief from `Brief JSON`. Edit
-content **on the page** (click the document, then *Save changes to Lark*), which
-rewrites the JSON and every readable column together. In Lark itself, edit only
-**Status**, **Due Date** and **Done**. Changes to other readable columns are overwritten
-the next time someone saves that brief from the page. If a row's JSON is ever
-missing or broken, the page rebuilds the brief from the readable columns instead.
+**Where edits belong.** The page renders each brief from `Brief JSON`; the
+readable columns are copies of it. Edit content **on the page** (click the
+document, then *Save changes to Lark*), which writes the JSON and **only the
+readable columns that changed**. **Status**, **Due Date**, **Done**, **Next Steps**,
+**Requirement Type**, **VAT** and **Attachments** belong to Lark: Fetch writes them
+only when you changed them on the page. In Lark itself, edit those freely. A
+readable column edited in Lark (say Venue) is not read back into the page,
+because the JSON wins, and is replaced when someone changes that same cell on
+the page. If a row's JSON is ever missing or broken, the page rebuilds the brief
+from the readable columns instead.
+
+**If someone changes the same cell meanwhile.** *Save changes* re-reads the row
+first. If a cell you changed was changed in Lark since the page loaded it, nothing
+is written and the dialog says which ("“Tranche 2” changed in Lark since you
+opened it. Nothing was written. Next Steps was edited there."). **Save anyway**
+then writes your version of just the cells you changed.
+
+**Never blank, never a placeholder.** Fetch leaves empty values out of a save
+(an empty Venue is not written as "Not specified", a brief without a title is not
+saved as "Untitled Project"). A cell is cleared only when you emptied it on
+purpose. A saved date, "Filed by" or option name is always a real one.
+
+**Newer versions.** A brief saved by a newer version of Fetch can't be saved from an
+older page ("This was saved by a newer version of Fetch. Reload the page to edit
+it."), so a cached old page can't downgrade it.
 
 **Permissions.** Fetch acts as the signed-in person, so each user needs
 **edit** access to this table in Lark (add and edit records), plus permission
 to **delete records** for the page's *Delete* option (otherwise deleting fails
 with a permission error and nothing is removed). People who can't open the
-table can't use Fetch at all. The setup script still runs as the app
-(`cli_aab0716138b8ded3`, through the proxy's `/token`) and needs permission to
-manage fields.
+table can't use Fetch at all. The setup script runs as the Lark app itself
+(`cli_aab0716138b8ded3`) and needs permission to manage fields.
 
-Re-running the setup is safe. It only creates what's missing:
+### Schema check
+
+On every load Fetch reads the table's columns and checks each one it uses (name,
+type, and the options it writes). If something doesn't match, saving, Done and
+Delete are switched off, and a callout (and Settings → Connections) lists what
+doesn't match in plain words ("Column “Done” is missing."), for example after a
+column was renamed in Lark. A missing **optional** column (Next Steps, Attachments,
+Requirement Type, VAT, Last Modified) only switches off what uses it. To fix a table,
+rename the column back, or run the setup script.
+
+### Setting up or repairing the columns
+
+Re-running the setup is safe. It only creates what's missing (and adds missing
+options to existing select columns; it never removes or renames anything):
 
 ```bash
 python tools/setup_lark_table.py            # dry run: shows the plan
 python tools/setup_lark_table.py --apply    # create or repair columns
 ```
 
+It reads `LARK_APP_ID` and `LARK_APP_SECRET` from the environment or from
+`tools/.env` (copy `tools/.env.example`; the file is git-ignored; the secret is the
+Lark app's *App Secret* in the developer console) and gets an app token straight
+from Lark. It needs Node 18+ to read the column list from `js/schema.js`.
 `--prune` additionally removes columns and rows that hold **no data at all**
 (used once, to clear the blank rows a new Lark table starts with).
 
@@ -336,25 +419,33 @@ Render → **New → Web Service** → Docker, root `render/gemini-pdf`, health 
   similarly named variables, which helps spot a typo.
 - `GEMINI_MODEL` should be `auto` (or unset), which uses the newest Flash-Lite model.
 
-**After updating the code** (e.g. this v1.1), redeploy the service and check
-its `GEMINI_MODEL` variable. See
-[Updating the existing deployment](render/gemini-pdf/README.md#updating-the-existing-deployment-v11).
+**After updating the proxy's code** (it is at version 1.5.0), follow the deploy
+checklist in [`render/gemini-pdf/README.md`](render/gemini-pdf/README.md#deploying-to-render):
+proxy first, page second. In particular, set `LARK_BASE_TOKEN` and `LARK_TABLE_ID`
+on the service before deploying 1.5.0, or it won't start. When it is live, run
+`npm run check:proxy`; after that `SERVICES.gemini.min` in `js/config.js` can be
+raised to `1.5.0`.
 
 ### 2. Point the page at it
 
-`js/config.js` already points at the deployed services:
+`js/config.js` already points at the deployed services (`SERVICES`):
 
 ```js
-GEMINI_PROXY_URL: "https://gemini-pdf-6wp4.onrender.com",
-LARK_PROXY_URL:   "https://lark-proxy-dwiw.onrender.com",
+lark:   { url: "https://lark-proxy-dwiw.onrender.com", service: "lark-cors-proxy", min: "", ... },
+gemini: { url: "https://gemini-pdf-6wp4.onrender.com", service: "gemini-brief-proxy", min: "1.4.0", ... },
 ```
 
 These are the same for everyone. **Settings → Advanced** (local copies only,
-on `localhost`) can point a developer's browser elsewhere; a hosted page always
-uses these, because the Lark proxy receives people's login tokens. There is no cache to bust after an
+on `127.0.0.1`) can point a developer's browser elsewhere; a hosted page always
+uses these, because the Lark proxy receives people's login tokens. The page checks
+each service's `GET /` on every wake: if the version is below `min`, or the
+service doesn't allow a header the page sends, Settings says "Out of date (v1.3.0,
+needs 1.4.0). Ask the admin to redeploy it." and only extraction is switched off.
+The Lark table is one link per environment (`TABLES.live`, `TABLES.test`); `APP.env`
+picks which. There is no cache to bust after an
 update: the page loads its styles and modules under a fresh URL every time it
 opens (`APP_BUILD` and the import map in `index.html`; list every new `js/` file
-there), so users always get the latest files.
+there, `npm run check:shell` fails if one is missing), so users always get the latest files.
 
 ### 3. Host the page (GitHub Pages)
 
@@ -384,7 +475,7 @@ Other static hosts (Netlify, Cloudflare Pages, Render Static Site) work the
 same way: publish the project root, no build command.
 
 The page is built from ES modules, so it must be served over http(s) (or
-`http://localhost`): opened straight from disk it shows *Fetch couldn't start*.
+`http://127.0.0.1`): opened straight from disk it shows *Fetch couldn't start*.
 
 ### 4. Lock it down (recommended)
 
@@ -441,14 +532,20 @@ the current browser only.
 | **Account** | Your Lark name and picture, how long the login has left, **Log in again** (a fresh 2 hours) and **Log out**. Settings is the one screen that opens without logging in. |
 | **Appearance** | System (follows the computer), Light or Dark (arrow keys move between them). Saved per browser under `fetch.theme` and applied before the page draws, so there's no flash. |
 | **Gemini API key** | Your own key from [Google AI Studio](https://aistudio.google.com/apikey). It's sent to the extraction service with each brief (`X-Gemini-Api-Key` header), used once, and never stored there. **Required** when the service has no shared key; the status pill shows *Key needed*, *Using the shared key* or *Using your key*. **Save key** also checks it with Google and shows which Flash-Lite model you'll get; **Test key** re-checks it. |
-| **Connections** | Live status of the extraction service (*Awake* / *Waking up…* / *Unreachable*) and Lark (*Connected · N briefs*), with **Wake up** and **Refresh** buttons. |
-| **Advanced: service addresses** | Only on `localhost`. Override the extraction service URL, the Lark proxy URL, or the Lark table (paste the table's link). Empty = the defaults in `js/config.js`. |
+| **Connections** | Live status of the extraction service and the connection service (the Lark proxy): *Awake · v1.5.0* / *Waking up…* / *Unreachable (no answer for 3 minutes)* / *Blocked by an ad blocker…* / *Out of date (v1.3.0, needs 1.4.0). Ask the admin to redeploy it.*; and Lark Base (*Connected · N briefs*) with any table problems listed. **Wake up** and **Refresh** buttons. |
+| **Advanced: service addresses** | Only on `127.0.0.1`. Override the extraction service URL, the Lark proxy URL (https, or http on this computer), or the Lark table (paste the table's link; a wiki link is refused). Empty = the defaults in `js/config.js`. While any override is active a red **Override** badge shows in the top bar. |
 | **This browser** | Clears the unsaved draft and the cached briefs list (keeps your key, theme and login). One click; **Undo** in the toast puts them back. |
 
-Everything Fetch keeps in the browser uses `fetch.*` keys (`fetch.settings`,
-`fetch.theme`, `fetch.draft`, `fetch.briefsCache`, `fetch.etaFactor`; the login
-and typed text in `sessionStorage`). Older versions used `bx.*`; a small script
-at the top of `index.html` moves those once and can be removed after January 2027.
+Everything Fetch keeps in the browser uses `fetch.*` keys: in `localStorage`
+`fetch.settings` (JSON), `fetch.theme`, `fetch.draft` (with its `client_token`),
+`fetch.etaFactor` and `fetch.cache.<app>:<table>` (the list of briefs, without
+attachment links); in `sessionStorage` the login (`fetch.auth.token`, `.pending`,
+`.user`), `fetch.composeText`, `fetch.edits` (unsaved edits, only while you are at
+Lark's login page) and `fetch.override.*`. The cached list is dropped whenever a
+session ends (not only on Log out), because shared computers outlive a login.
+Older versions used `bx.*`; a small script at the top of `index.html` moves
+those once (and drops the old `fetch.briefsCache`), and can be removed after
+January 2027. The header also shows a **Test copy** badge when `APP.env` isn't `live`.
 
 The *Setup needed* bar on the landing page, and any key-related error in the
 loader, link straight to the key field (`#/settings/key`).
@@ -458,28 +555,55 @@ loader, link straight to the key field (`#/settings/key`).
 ## Local development
 
 ```bash
-# 1. Gemini proxy on :8000 (needs a key)
+# 1. Gemini proxy on :8000 (needs a key; the Lark ids are required unless login is off)
 cd render/gemini-pdf
-GEMINI_API_KEY=your-key python gemini_proxy.py
+REQUIRE_LARK_LOGIN=false GEMINI_API_KEY=your-key python gemini_proxy.py
 
-# 2. Static page on :8770 (any static server works)
+# 2. Static page on 127.0.0.1:9124 (Fetch's port)
 cd ../..
-python tools/serve_web.py          # serves the page on :8770 with caching disabled
+npm run serve                      # = python tools/serve.py 9124, with caching disabled
 ```
 
-Open `http://localhost:8770/?gemini=http://localhost:8000` and log in
-(`http://localhost:8770/` must be a Redirect URL on the Lark app). A local
-proxy checks logins too; run it with `REQUIRE_LARK_LOGIN=false` to skip that. The `?gemini=` and
-`?lark=` overrides are remembered for the tab session (`?reset` clears them),
-and they **only accept localhost URLs**, so a shared link can't redirect
-uploads elsewhere. `.claude/launch.json` defines the same static server for
-Claude Code's preview.
+Open `http://127.0.0.1:9124/` and log in. **That address must be a Redirect URL on
+the Lark app** (the app owner adds `http://127.0.0.1:9124/` under *Security Settings →
+Redirect URLs*; see [Lark login](#lark-login)). Use `127.0.0.1`, never `localhost`. For a
+local extraction service open `http://127.0.0.1:9124/?gemini=http://127.0.0.1:8000`. The
+`?gemini=` and `?lark=` overrides (https, or http on this computer) are remembered for
+the tab session (`?reset` clears them) and only work on a local page; a red
+**Override** badge shows while any is active. `.claude/launch.json` defines the same
+static server for Claude Code's preview. Ports: 9123 Polaris, 9124 Fetch, 8000 the Gemini
+proxy locally, 8001 the Lark proxy locally.
 
-Tests for the proxy (offline, Gemini mocked):
+**Preview mode.** `http://127.0.0.1:9124/?preview` runs the page on made-up sample briefs
+with a fake login, a canned extraction and everything in `tests/preview-fixture.json`.
+Saves, Done and Delete only change that tab's memory; nothing is sent anywhere. A badge says so.
+Use a separate tab. It is how screens are checked without a Lark login.
+
+---
+
+## Testing
 
 ```bash
-cd render/gemini-pdf && python -m unittest discover -s tests -v
+npm test                 # offline: brief, rows, schema, errors, and ops.js against a fake Lark
+npm run check:shell      # import map lists every js/*.js, shared files unedited, watchdog, syntax, no secrets
+npm run check:proxy      # GET / on both hosted services: version >= min, headers allowed (read-only)
+npm run check:live       # read-only against the live table: columns, and every payload the page would write
+npm run check:e2e        # every write, on a TEST COPY of the table only (see below)
+npm run test:proxy       # the Gemini proxy's own unit tests (offline, Gemini mocked)
+npm run preview:fixture  # regenerates the sample data for ?preview
 ```
+
+`check:live` and `check:e2e` need `LARK_APP_ID` and `LARK_APP_SECRET` in
+`tools/.env` (or the environment); they get an app token straight from Lark, and the Lark
+app must be able to open the table. `check:live` writes nothing.
+
+`check:e2e` refuses to run unless `APP.env` is `"test"` in `js/config.js` and
+`TABLES.test.briefs` holds a link. **There is no test copy yet.** To make one:
+duplicate the briefs table in Lark (with its records), give the Lark app edit access
+to it, paste its link into `TABLES.test.briefs`, and in a working copy set `APP.env`
+to `"test"` (the page then shows a **Test copy** badge and uses that table). It creates
+one row, saves an edit, marks it Done, deletes it, and checks that only the intended cells
+changed and every other row is untouched.
 
 ---
 
@@ -509,11 +633,26 @@ cd render/gemini-pdf && python -m unittest discover -s tests -v
 - **Bring your own key.** The proxy can run without a shared key; each user's
   key travels with their request and is never stored server-side.
 - **Ready before you are.** On page load Fetch wakes both Render services and
-  prefetches the briefs list, so *All briefs* is populated instantly.
+  prefetches the briefs list, so *All briefs* is populated instantly. Reads are
+  retried while a service wakes (about 3 minutes); writes never are.
 - **Resilient to Gemini outages.** Retry, model fallback, a cooldown for
   overloaded models, and one automatic client retry with a visible countdown.
-- **Idempotent saves.** Each draft carries a `client_token`, so a retried save
-  can't create a duplicate row.
+- **Safe writes.** A new row is created once (each draft carries a
+  `client_token`, saved with the draft, so a retried save can't add a duplicate).
+  An update re-reads the row, writes only the cells that changed, refuses if one of
+  them changed in Lark meanwhile, and reads the row back. A write is never retried by
+  the page, and is never reported as "nothing was written" unless Lark answered with an
+  error: after a timeout or a dropped connection it says "Fetch couldn't confirm the
+  save. Refresh before trying again." and the list is re-read first.
+- **One list of columns** (`js/schema.js`), checked against the live table on every
+  load, used by the setup script and by `check:live`. Select values are written with
+  Lark's own option names (`matchOption`), so a write can't create an option by accident.
+- **Pure where it can be.** `brief.js`, `rows.js`, `cells.js`, `schema.js` and
+  `errors.js` have no DOM and no network, so Node tests cover them; `ops.js`,
+  `tables.js` and `verify.js` take a `call` function, so the same code runs in the page
+  (with the user's token) and in the Node checks (with an app token).
+- **Honest errors.** Network code throws facts; `describe(err)` turns them into one
+  sentence at display time (a code table in `js/errors.js`, tested so every code has a message).
 - **Stateless and cheap.** Both proxies are stdlib-only Python containers with
   no database. Lark is the database.
 
@@ -563,17 +702,31 @@ cd render/gemini-pdf && python -m unittest discover -s tests -v
   enforces each person's own permissions on the Base. The extraction service
   checks the login itself, so the shared Gemini key can't be used by someone
   who merely finds its URL. See [Lark login](#lark-login).
-- **Login tokens** stay in the tab's `sessionStorage` and are sent only to
+- **Login tokens** stay in the tab's `sessionStorage` (so **each tab logs in on its
+  own**, one click if Lark's own session exists) and are sent only to
   the Lark proxy and the extraction service, both over HTTPS. PKCE and the
   `state` check protect the login callback, and `?code=` is removed from the
-  address bar immediately. Service-address overrides only work on `localhost`,
-  so a hosted page can't be pointed at a proxy that collects tokens.
-- **Lark proxy**: its `GET /token` endpoint still hands out an **app** token
-  to anyone who asks (Fetch no longer uses it; `tools/setup_lark_table.py`
-  does). That token can read and write the Base without any login, so it's
-  the remaining way around Fetch's login. Disable or protect `/token` on the
-  proxy once nothing else needs it, and set its `ALLOWED_ORIGIN` (see
-  `tech/lark-proxy/README.md`).
+  address bar before anything else happens. Service-address overrides only work on
+  a local page, so a hosted page can't be pointed at a proxy that collects tokens.
+  `index.html` also carries a referrer policy and a Content-Security-Policy whose
+  `connect-src` lists only the page itself, the two services, Google (to test a key) and this
+  computer (for the test addresses); this alone stops a token being sent anywhere else.
+- **Log out is local.** Lark has no way to revoke a token, so *Log out* forgets it
+  (and the cached briefs) in this browser only. The token stays valid until it expires (about 2 hours).
+- **The cached list of briefs** (`fetch.cache.<app>:<table>`) lets the page paint at
+  once. It holds no attachment links, is never the basis for a write (a save re-reads the
+  row), and is dropped whenever a session ends.
+- **Same origin, same storage.** Per-tool key prefixes keep keys apart but aren't isolation:
+  every page on one `github.io` origin can read them. Host Fetch on an address that
+  serves nothing else (a custom domain or a dedicated account).
+- **Lark proxy (not in this repository).** Its `GET /token` endpoint, and its
+  `tenant_access_token` forwarding, still hand out an **app** token to anyone who asks.
+  That token can read and write the Base without any login, so it's the remaining way
+  around Fetch's login. Fetch no longer uses it: `tools/setup_lark_table.py`,
+  `tests/check-live.mjs` and `tests/e2e.mjs` get their app token directly from Lark with the
+  secret in the git-ignored `tools/.env`. The proxy's owner can now remove `/token`
+  (the proxy should add the app secret only to `/authen/v2/oauth/token`), and set its
+  `ALLOWED_ORIGIN` (see `tech/lark-proxy/README.md`).
 - **Abuse limits** on the Gemini proxy: the login check, an origin
   allow-list, a per-user hourly rate limit, a concurrency cap and an upload cap.
 
@@ -601,33 +754,55 @@ cd render/gemini-pdf && python -m unittest discover -s tests -v
 
 ## Troubleshooting
 
-| Symptom | Fix |
-| ------- | --- |
-| Yellow "Setup needed" bar on the landing page | The extraction service has no shared key and you haven't added yours: click the bar and paste your key in Settings. |
+| You see | What to do |
+| ------- | ---------- |
+| A yellow bar: "**Setup needed:** add your Gemini API key to start extracting briefs." | The extraction service has no shared key and you haven't added yours. Click the bar and paste your key in Settings. |
 | "Your Gemini key needs attention" | Google rejected your key. Re-copy it from Google AI Studio into Settings and click **Test key**. |
 | "Gemini usage limit reached" | Your key hit its free-tier limit. Wait a bit, or use another key. |
-| A user key fails with a network error right after an update | The extraction service still runs the old version. Redeploy it on Render. |
-| "Gemini is overloaded right now" | Temporary Gemini capacity issue. The page retries once automatically; try again in a minute. |
-| Red "Fetch can't reach its extraction service" bar, or console `net::ERR_BLOCKED_BY_CLIENT` | An ad blocker or privacy extension is blocking `gemini-pdf-6wp4.onrender.com`. Known cause, now avoided: uBlock Origin's lists block `||onrender.com/health` on every Render service, so the page checks each service's root URL (`/`) instead. Render's own health check can keep using `/health`. If something else gets blocked, open the blocker's request log to find the rule, then allow the address or pause the blocker for Fetch. Fetch detects instant in-browser rejections and shows the bar instead of retrying. |
-| "Waking up the extraction service…" | Render cold start (up to a minute after ~15 idle minutes). Normal; it continues by itself. |
-| Settings shows the extraction service as "Can't reach it (…)" | Fetch retries for ~3 minutes before saying this, and the reason is in brackets. Check the address under Settings → Advanced. Open https://gemini-pdf-6wp4.onrender.com/health in a browser: it should show `"status": "ok"`. |
-| "Setup needed" even though a shared key is set on Render | The service doesn't see the key. See [Deploying → 1](#1-deploy-the-gemini-proxy-render): check `shared_key` at the service's root URL, then save the variable with **Save, rebuild, and deploy**. |
-| Login screen: "This address … isn't registered on the Lark app" | Add exactly that address (with the trailing `/`) under *Security Settings → Redirect URLs* on the Lark app, then reload. |
-| Lark's page shows error **20029** after clicking *Log in* | Same: the address isn't a registered Redirect URL. |
-| "Your Lark account isn't allowed to use this app yet" (20010) | Add the person to the Lark app's availability range (*Version Management & Release → Availability*). |
-| "That login started in another tab" / "login check failed" | Log in again from the tab you're using. |
+| "Gemini is overloaded right now. Please try again in a minute." | Temporary Gemini capacity issue. The page retries once on its own ("Retrying automatically in 20s…"); try again in a minute. |
+| A red bar: "**Fetch can't reach its connection service.** An ad blocker or privacy extension is probably blocking it." (or "Your browser is blocking …, probably an ad blocker or privacy extension.") | An ad blocker or privacy extension is blocking the host named in the bar. Allow it (or pause the blocker on this page), then reload. Fetch pings each service's `/`, not `/health`, because filter lists such as uBlock Origin's block `onrender.com/health`. If something else is blocked, the blocker's request log shows the rule. |
+| "Fetch can't reach its connection service (lark-proxy-dwiw.onrender.com). It may still be waking up; try again in a moment." | The Lark proxy is asleep or unreachable. Wait a moment and try again. Settings → Connections shows its state and has **Wake up**. |
+| "Fetch can't reach its extraction service (…). It may still be waking up; try again in a moment." | Same, for the extraction service. If it keeps happening, check the address under Settings → Advanced. |
+| "Waking up the connection… It sleeps when nobody's using it. This can take up to a minute." / "Waking up the extraction service…" | A free Render service is starting (up to a minute after ~15 idle minutes). Normal; the page continues by itself. |
+| Settings → Connections: "Unreachable (no answer for 3 minutes)" | The page tried for 3 minutes. Open the service's address in a browser (it should show JSON with its `service` name), then **Wake up**. For the extraction service check the address under Settings → Advanced. |
+| Settings → Connections: "Out of date (v1.3.0, needs 1.4.0). Ask the admin to redeploy it." | The service is older than this page needs, or its CORS rules lack a header the page sends. Redeploy it on Render ([deploy checklist](render/gemini-pdf/README.md#deploying-to-render)); extraction is off until then. |
+| "A user key fails with a network error right after an update" (or "Out of date" above) | The extraction service still runs an old version. Redeploy it on Render. |
+| "Setup needed" even though a shared key is set on Render | The service doesn't see the key. Check `shared_key` at the service's root URL, then save the variable with **Save, rebuild, and deploy**. |
+| A red **Override** badge in the top bar | A test address or table is active (Settings → Advanced, or a `?gemini=` / `?lark=` link). Hover for what. Clear it in Settings, or open the page with `?reset`. |
+| A red "Preview mode: sample data, nothing is sent anywhere" badge | You opened `?preview`. It shows made-up data; nothing is saved. Open the normal address to use Fetch. |
+| A **Test copy** badge next to the name | `APP.env` is `"test"`: Fetch is using the test copy of the table. Set it back to `"live"`. |
+| Login screen: "This address (…) isn't registered on the Lark app, so login would stop on a Lark error page." (or Lark's page shows error **20029**) | Add exactly that address (with the trailing `/`, `127.0.0.1` not `localhost` for local use) under *Security Settings → Redirect URLs* on the Lark app, then reload. |
+| "Your Lark account isn't allowed to use this app yet. Ask the app admin to add you." (20010) | Add the person to the Lark app's availability range (*Version Management & Release → Availability*). |
+| "That login started in another tab. Log in again here." / "The login check failed, probably because it started in another tab. Log in again here." | Log in again from the tab you're using. |
+| "That login code expired or was already used. Log in again." / "That login took too long. Log in again." | Log in again. A login must finish within 10 minutes of leaving Fetch. |
+| "The connection service couldn't complete the login. Try again; if it keeps happening, tell the admin." | The Lark proxy had a problem. Try again; if it persists, check the proxy (it must add the app secret on `/authen/v2/oauth/token`). |
+| "Your login is missing a permission Fetch needs (…). Log out, then log in again." | The Lark app's scopes changed after you logged in. Log out, then log in. |
+| "Your login ended after about 2 hours. Log in again to keep going." | Logins last about 2 hours. Log in again; the draft, typed text and unsaved edits are kept. |
+| "Your login ends at 4:30 PM." (stays on screen) | Click **Log in again** before it ends, or finish what you're doing; nothing is lost either way. |
+| "Your login is about to end, so this wasn't sent." | Less than a minute (2 for an extraction) of login left. **Log in again**, then try it. |
+| "Your login can only read the tables. Log in again to allow saving." | The login lacks the `bitable:app` scope. Log in again. |
 | "Your account doesn't have access" when extracting (`not_authorized`) | The person can't open the briefs table in Lark. Share the Base with them (edit access), then they log in again. |
-| "Your Lark login has ended" | Logins last about 2 hours. Log in again; the draft and typed text are kept. |
-| "Your Lark account doesn't have permission…" (`1254302`) or "can't open the briefs Base" (`91403`) | Give the person edit access to the briefs table in Lark. |
-| Delete says your account isn't allowed to delete rows | Give the person permission to delete records on the table (or mark the brief Done instead). |
-| "The Lark table is missing a column" (`1254045`) | A column was renamed or deleted. Run `python tools/setup_lark_table.py --apply`. |
-| All briefs shows "Waking up the Lark connection…" | The Lark proxy is cold-starting (up to ~1 minute). |
+| "Lark says your account can't open or edit this Base. Ask its owner for edit access." / "Your account isn't allowed to change this table (its permissions are restricted). Ask the Base owner." | Give the person edit access to the briefs table in Lark. |
+| "Your account isn't allowed to delete rows. Mark it Done instead." | Give the person permission to delete records on the table, or mark the brief Done. |
+| A yellow callout: "**Saving is switched off.** The briefs table doesn't match what Fetch expects. Tell the tool owner." with "Column “Done” is missing." (or "“Done” has no option “Yes”.", "Column “Due Date” is Text, expected Date.") | A column was renamed, deleted or retyped in Lark. Rename it back, or run `python tools/setup_lark_table.py --apply`, then Refresh in Settings. Saving, Done and Delete come back on their own. |
+| "Some actions are switched off." with "Column “Attachments” is missing." | An optional column is gone. Only what uses it is off. Restore it, or run the setup script. |
+| "A column Fetch needs doesn't exist: …. Tell the tool owner." | Same as above, reported by Lark when a write names a missing column. |
+| "“…” changed in Lark since you opened it. Nothing was written." with the cell names, and the button reads **Save anyway** | Someone changed those cells in Lark meanwhile. The list has refreshed. Choose **Save anyway** to write your version of just the cells you changed, or close the dialog and reopen the brief to see theirs. |
+| "Fetch couldn't confirm the save. Refresh before trying again." | The connection dropped or timed out after the save was sent, so Fetch can't know whether it landed. The list re-reads from Lark; check there before saving again (a new brief can safely be retried: it uses the same `client_token`). |
+| "Nothing was written. …" | Lark answered with an error (the sentence after it says which); the table is unchanged. |
+| A warning: "Check these in Lark: Venue: sent “…”, Lark has “…”" | The save worked, but Lark holds a cell differently from what Fetch sent. **Open in Lark** and check it. |
+| A warning: "Saved, but Fetch couldn't read it back to check it." | The save worked; only the check failed. Refresh the list to see the row. |
+| "These files didn't upload, so nothing was saved: …" with **Try again** and **Save without these files** | An upload failed or a file is over the size limit. Try again, or save the brief without those files (they're listed in the message). |
+| "This was saved by a newer version of Fetch. Reload the page to edit it." | Your page is older than the data. Reload (hard reload if needed) and open the brief again. |
+| "Lark has “…” here. It stays unless you pick one." under Requirement or VAT | The Lark cell holds an option Fetch doesn't offer. It is kept on save unless you pick another. |
+| "Fetch has no briefs table set for this environment. Tell the tool owner." | `TABLES.test.briefs` in `js/config.js` is empty while `APP.env` is `"test"`. |
+| "That row isn't in Lark any more. The list refreshed." | Someone deleted the brief in Lark. |
+| "Lark is getting too many requests. Wait a moment and try again." | Lark's rate limit. Wait a moment and try again. |
 | A file is rejected | The message says why: e.g. an old `.doc`/`.ppt` (save as PDF), a ZIP (unzip it), or over 50 MB in total. |
 | Users see an old version after an update | Only `index.html` itself could be stale (scripts and styles always load fresh). Reload the page; hosts normally revalidate HTML on every visit. |
-| "Fetch couldn't start. Reload the page." | A module failed to load (a flaky connection or a half-finished deploy), or the page was opened from a file. Reload; open it from its web address. |
+| "Fetch couldn't start. Reload the page. If it keeps happening, open it from its web address (not a saved file)." | A module failed to load (a flaky connection or a half-finished deploy), or the page was opened from a file. Reload; open it from its web address. After a deploy, `npm run check:shell` catches a module missing from the import map. |
 
 ---
-
 ## Maintenance recipes
 
 **Tune the wording or rules**: edit `render/gemini-pdf/prompt.md` and redeploy
@@ -640,13 +815,29 @@ the proxy. No page changes needed.
 2. `js/brief.js`: add it to `normalize()`, `toMarkdown()` and the chat text.
 3. `js/doc.js`: render it (use `ed()` for text or `listBlock()` for a list).
 4. `js/pdf.js`: add it to `build()`.
-5. `js/lark.js` → `FIELD` and `toFields()`; `tools/setup_lark_table.py` →
-   `FIELDS`; then run the script with `--apply`.
+5. `js/schema.js` → `COLUMNS` (name, type, options), then `js/rows.js` (`briefCells()`
+   and `fromRecord()`); `npm test` shows what moved. Run `python tools/setup_lark_table.py --apply`
+   to create the column (it reads the list from `schema.js`).
 
-**Rename a Lark column**: update the name in both `js/lark.js` (`FIELD`) and
-`tools/setup_lark_table.py` (`FIELDS`) first, otherwise saves fail with
-`1254045`.
+**Rename a Lark column**: rename it in `js/schema.js` (`COLUMNS`) and in Lark at the
+same time. Until both match, Fetch switches saving off and the callout says
+"Column “…” is missing." (a rename in Lark alone does exactly that, on purpose).
 
-**Move to a different table**: update `LARK_APP_TOKEN`, `LARK_TABLE_ID` and
-`LARK_TABLE_URL` in `js/config.js` and the constants at the top of the setup
-script, grant the app access, then run the script with `--apply`.
+**Move to a different table, or add a test copy**: paste the table's link into
+`TABLES.live.briefs` (or `TABLES.test.briefs`) in `js/config.js`, exactly as copied from
+Lark's address bar (a `/base/` link with `?table=tbl…`; a wiki link is refused). The app token,
+table id and "Open in Lark" link all come from it. Give the Lark app access, then
+run `python tools/setup_lark_table.py --apply`. The extraction service also
+checks the table (`LARK_BASE_TOKEN` and `LARK_TABLE_ID` in Render's environment): change those too.
+
+**Add a Next Steps choice**: `RULES.nextSteps` in `js/config.js` (and the option in Lark, or
+run the setup script, which adds missing options).
+
+**Raise the extraction service's required version**: deploy the service first, run
+`npm run check:proxy`, then raise `SERVICES.gemini.min` in `js/config.js`.
+
+**Move a service to another host**: change its `url` in `js/config.js` and add the host to
+`connect-src` in the Content-Security-Policy `<meta>` in `index.html`, or the browser blocks the page's
+requests to it (a test address on `127.0.0.1` is already allowed).
+
+**Add a page module**: list it in the import map in `index.html`; `npm run check:shell` fails if you forget.

@@ -1,0 +1,16 @@
+{
+  "name": "fetch",
+  "private": true,
+  "type": "module",
+  "description": "Fetch: a static page that turns client briefs into a project brief summary and files it in a Lark Base table.",
+  "scripts": {
+    "serve": "python tools/serve.py 9124",
+    "test": "node tests/run-all.mjs",
+    "check:live": "node tests/check-live.mjs",
+    "check:proxy": "node tests/check-proxy.mjs",
+    "check:shell": "node tests/check-shell.mjs",
+    "check:e2e": "node tests/e2e.mjs",
+    "preview:fixture": "node tests/make-preview-fixture.mjs",
+    "test:proxy": "cd render/gemini-pdf && python -B -m unittest discover -s tests"
+  }
+}

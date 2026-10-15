@@ -1,24 +1,21 @@
 /*
  * Settings - per-browser preferences layered over config.js:
  *
- *   config.js defaults  ←  saved addresses (localhost only)  ←  ?gemini= / ?lark= (localhost only, for testing)
+ *   config.js defaults  <-  saved addresses (local page only)  <-  ?gemini= / ?lark= (local page only, per tab)
  *
- * Service addresses and the table link can only be overridden on a local page:
- * the Lark proxy receives people's login tokens, so a hosted page must always
- * use the real one.
+ * Service addresses and the table link can only be overridden on a local page: the Lark
+ * proxy receives people's login tokens, so a hosted page must always use the real one.
+ * Every active override is listed by overrides() and shown as a red badge in the top bar.
  *
- * cfg() is rebuilt whenever settings change, so modules should always call it at
- * use time rather than keeping a copy. The theme has its own key (fetch.theme,
- * ui.js initTheme); the Settings screen itself is settings-view.js.
+ * cfg() is rebuilt whenever settings change, so modules should always call it at use
+ * time rather than keeping a copy. The theme has its own key (fetch.theme, ui.js
+ * initTheme); the Settings screen itself is settings-view.js.
  */
-import { CONFIG } from "./config.js";
+import { APP, SERVICES, tableLinks } from "./config.js";
+import { parseBaseLink } from "./tables.js";
 import { store, recall } from "./ui.js";
 
-/** Fired after the saved settings change. */
-export const SETTINGS_EVENT = "fetch:settings";
-
 const KEY = "fetch.settings";
-const DEFAULTS = Object.assign({}, CONFIG);
 const KEY_SHAPE = /^[A-Za-z0-9_\-.]{20,200}$/;
 const GEMINI_API = "https://generativelanguage.googleapis.com/v1beta";
 
@@ -26,51 +23,55 @@ const GEMINI_API = "https://generativelanguage.googleapis.com/v1beta";
 const read = () => recall("local", KEY) || {};
 const write = (value) => store("local", KEY, value);
 
-/** Pull app token + table id out of a Lark Base link. */
-function parseLarkTable(link) {
-  try {
-    const u = new URL(String(link).trim());
-    const app = (u.pathname.match(/\/(?:base|wiki)\/([A-Za-z0-9]+)/) || [])[1];
-    const table = u.searchParams.get("table");
-    if (!app || !table || !/^https:$/.test(u.protocol)) return null;
-    return { appToken: app, tableId: table, url: u.toString() };
-  } catch (_) {
-    return null;
-  }
-}
-
 const isLocal = (u) => {
   try { return /^(localhost|127\.0\.0\.1|\[::1\]|.+\.localhost)$/.test(new URL(u).hostname); } catch (_) { return false; }
 };
+/** https, or http on this computer. */
 const isServiceUrl = (u) => {
   try { const x = new URL(u); return x.protocol === "https:" || (x.protocol === "http:" && isLocal(u)); } catch (_) { return false; }
 };
 
 const localPage = isLocal(location.href);
 
+/** The table links as the config has them: { app, table, view, url } or null when there isn't one. */
+function configTable() {
+  try { return parseBaseLink(tableLinks().briefs); } catch (_) { return null; }
+}
+
+const defaults = {
+  geminiUrl: SERVICES.gemini.url,
+  larkUrl: SERVICES.lark.url,
+  get table() { return configTable(); },
+};
+
 let current;
-/** The configuration in force right now. */
+const listeners = new Set();
+/** The configuration in force right now: { geminiUrl, larkUrl, table, overrides: ["…", …] }. */
 export const cfg = () => current;
+/** Subscribe to changes of the saved settings. Returns the unsubscribe function. */
+export const on = (fn) => { listeners.add(fn); return () => listeners.delete(fn); };
 
 export function rebuild() {
   const s = localPage ? read() : {};
-  const c = Object.assign({}, DEFAULTS);
-  if (s.geminiUrl) c.GEMINI_PROXY_URL = s.geminiUrl;
-  if (s.larkUrl) c.LARK_PROXY_URL = s.larkUrl;
-  const table = s.larkTable && parseLarkTable(s.larkTable);
-  if (table) Object.assign(c, { LARK_APP_TOKEN: table.appToken, LARK_TABLE_ID: table.tableId, LARK_TABLE_URL: table.url });
-  c.OVERRIDDEN = !!(s.geminiUrl || s.larkUrl || table);
-  if (localPage) {   // testing overrides; only local URLs, so a shared link can't redirect uploads
-    const q = new URLSearchParams(location.search);
-    if (q.has("reset")) ["gemini", "lark"].forEach((k) => store("session", `fetch.override.${k}`, undefined));
-    ["gemini", "lark"].forEach((k) => q.get(k) && isLocal(q.get(k)) && store("session", `fetch.override.${k}`, q.get(k)));
-    const gemini = recall("session", "fetch.override.gemini"), lark = recall("session", "fetch.override.lark");
-    c.GEMINI_OVERRIDDEN = !!gemini;
-    c.GEMINI_PROXY_URL = gemini || c.GEMINI_PROXY_URL;
-    c.LARK_PROXY_URL = lark || c.LARK_PROXY_URL;
+  const c = { geminiUrl: defaults.geminiUrl, larkUrl: defaults.larkUrl, table: defaults.table, overrides: [] };
+  if (s.geminiUrl && isServiceUrl(s.geminiUrl)) { c.geminiUrl = s.geminiUrl; c.overrides.push("Extraction service address (Settings)"); }
+  if (s.larkUrl && isServiceUrl(s.larkUrl)) { c.larkUrl = s.larkUrl; c.overrides.push("Lark proxy address (Settings)"); }
+  if (s.larkTable) {
+    try { c.table = parseBaseLink(s.larkTable); c.overrides.push("Lark table (Settings)"); } catch (_) { /* ignored: not a table link */ }
   }
-  c.GEMINI_PROXY_URL = (c.GEMINI_PROXY_URL || "").replace(/\/+$/, "");
-  c.LARK_PROXY_URL = (c.LARK_PROXY_URL || "").replace(/\/+$/, "");
+  if (localPage) {   // testing overrides, per tab; only https or local http, and only on a local page
+    const q = new URLSearchParams(location.search);
+    const names = { gemini: "geminiUrl", lark: "larkUrl" };
+    if (q.has("reset")) Object.keys(names).forEach((k) => store("session", `fetch.override.${k}`, undefined));
+    Object.keys(names).forEach((k) => q.get(k) && isServiceUrl(q.get(k)) && store("session", `fetch.override.${k}`, q.get(k)));
+    for (const [k, prop] of Object.entries(names)) {
+      const v = recall("session", `fetch.override.${k}`);
+      if (v && isServiceUrl(v)) { c[prop] = v; c.overrides.push(`${k === "gemini" ? "Extraction service" : "Lark proxy"} address (page link)`); }
+    }
+  }
+  if (APP.env !== "live") c.overrides.push(`Environment: ${APP.env}`);
+  c.geminiUrl = (c.geminiUrl || "").replace(/\/+$/, "");
+  c.larkUrl = (c.larkUrl || "").replace(/\/+$/, "");
   current = c;
 }
 
@@ -79,7 +80,7 @@ function set(patch) {
   Object.keys(next).forEach((k) => (next[k] == null || next[k] === "") && delete next[k]);
   const ok = write(next);
   rebuild();
-  document.dispatchEvent(new CustomEvent(SETTINGS_EVENT, { detail: patch }));
+  listeners.forEach((fn) => fn(patch));
   return ok;
 }
 
@@ -110,4 +111,4 @@ const geminiKey = () => read().geminiKey || "";
 
 rebuild();
 
-export { read as get, set, DEFAULTS as defaults, parseLarkTable, isServiceUrl, testKey, KEY_SHAPE, geminiKey, localPage };
+export { read as get, set, defaults, isServiceUrl, testKey, KEY_SHAPE, geminiKey, localPage };

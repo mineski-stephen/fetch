@@ -1,284 +1,84 @@
 /*
- * Lark Base client. Every call runs as the signed-in person (their
- * user_access_token from auth.js), so Lark applies their own permissions on the
- * Base. Calls go through the Lark CORS proxy:
+ * Lark Base client for the page. Every call runs as the signed-in person (their
+ * user_access_token from auth.js), so Lark applies their own permissions on the Base.
+ * Calls go through the Lark CORS proxy (net.js):
  *   POST {proxy}/proxy?url=<lark api>   -> forwarded with the user's Bearer token
- * Writes use POST endpoints only (records/batch_update, records/batch_delete).
+ * The reads and writes themselves are in ops.js (they take `call`, so Node reuses them);
+ * this module adds the token, the table from Settings, and the live schema check.
  *
- * Column names must match tools/setup_lark_table.py.
+ * Column names are in schema.js; tools/setup_lark_table.py creates them from the same list.
  */
-import * as B from "./brief.js";
 import * as auth from "./auth.js";
+import { lark, larkUpload, LarkError } from "./net.js";
 import { cfg } from "./settings.js";
+import { LARK } from "./config.js";
+import { WriteBlocked } from "./errors.js";
+import { newClientToken } from "./tables.js";
+import * as ops from "./ops.js";
 
-const FIELD = {
-  title: "Project Title", client: "Client", filed: "Date Filed", due: "Due Date", status: "Status",
-  period: "Event Date / Period", venue: "Venue", objective: "Objective", audience: "Target Audience",
-  kpis: "KPIs", scope: "Scope of Work", budget: "Estimated Budget", budgetType: "Budget Type",
-  submission: "Proposal Submission", submissionDetails: "Submission Details", notes: "Notes",
-  questions: "Questions for Client", summary: "Summary", filedBy: "Filed By", sources: "Source Files",
-  json: "Brief JSON", modified: "Last Modified", nextSteps: "Next Steps", attachments: "Attachments",
-  requirement: "Requirement Type", vat: "VAT", done: "Done",
-};
-const AUTH_CODES = new Set([20005, 99991661, 99991663, 99991668, 99991677]);
-const FRIENDLY = {
-  1254302: "Your Lark account doesn't have permission to do this in the briefs table. Ask the Base admin for edit access.",
-  91403: "Your Lark account can't open the briefs Base. Ask its owner to share it with you (edit access).",
-  99991679: "Your login is missing a permission Fetch needs. Log out, then log in again.",
-  1254043: "That brief no longer exists in Lark. Refresh the list.",
-  1254045: "The Lark table is missing a column. Run tools/setup_lark_table.py --apply to repair it.",
-  1254290: "Lark is rate-limiting requests. Wait a few seconds and try again.",
-  1254291: "Someone else is editing this row right now. Try again in a moment.",
-};
+/** The live check of the table's columns: { checked, problems, partial, missing, options, fields }. */
+const schema = { checked: false, problems: [], partial: [], missing: new Set(), options: {}, fields: [] };
 
-class LarkError extends Error {
-  constructor(message, code) { super(message); this.code = code; }
-}
-
-async function fetchJSON(url, options = {}, timeoutMs = 75000) {
-  const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, { ...options, signal: ctl.signal });
-    return await res.json().catch(() => ({ code: res.status, msg: `HTTP ${res.status}` }));
-  } catch (e) {
-    throw new LarkError(e.name === "AbortError"
-      ? "Lark took too long to respond. The connection may be waking up - try again."
-      : "Couldn't reach the Lark service. Check your connection and try again.", "network");
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-function fail(data) {
-  const code = data?.code;
-  throw new LarkError(FRIENDLY[code] || `Lark error ${code}: ${data?.msg || "unknown"}`, code);
+/** The table Fetch reads and writes: from Settings or the config. */
+function table() {
+  const t = cfg().table;
+  if (!t) throw new WriteBlocked([], "Fetch has no briefs table set for this environment. Tell the tool owner.");
+  return t;
 }
 
 /** The signed-in user's token; if the login has ended, the app shows the login screen. */
 function token() {
   const value = auth.token();
   if (!value) {
-    auth.ended();
-    throw new LarkError("Your Lark login has ended. Log in again.", "auth");
+    auth.end();
+    throw new LarkError("login ended", { deadToken: true });
   }
   return value;
 }
 
-function checkAuth(data) {
-  if (!AUTH_CODES.has(data?.code)) return;
-  auth.ended();
-  throw new LarkError("Your Lark login has ended. Log in again.", "auth");
-}
+/** One Lark call with the person's token. Reads pass { read: true } (retried while the proxy wakes);
+ *  everything else is a write: 120 s, never retried. */
+const call = (method, url, body, opts = {}) =>
+  lark(method, url, { token: token(), body, read: !!opts.read, write: !opts.read && method !== "GET" });
 
-async function api(path, body) {
-  const target = `${cfg().LARK_API_BASE}/bitable/v1/apps/${cfg().LARK_APP_TOKEN}/tables/${cfg().LARK_TABLE_ID}${path}`;
-  const data = await fetchJSON(`${cfg().LARK_PROXY_URL}/proxy?url=${encodeURIComponent(target)}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json; charset=utf-8", Authorization: `Bearer ${token()}` },
-    body: JSON.stringify(body || {}),
-  });
-  checkAuth(data);
-  if (data.code !== 0) fail(data);
-  return data.data || {};
-}
-
-function warmup() {
-  // Root URL, not /health: ad-block lists block "||onrender.com/health" in browsers.
-  return fetch(`${cfg().LARK_PROXY_URL}/`, { cache: "no-store" }).then(() => true, () => false);
-}
-
-// ---- model <-> row ----------------------------------------------------------
-const tz = () => (cfg().LARK_TZ_OFFSET_MINUTES || 0) * 60000;
-const toMs = (iso) => {
-  if (!B.validISO(iso)) return null;
-  const [y, m, d] = iso.split("-").map(Number);
-  return Date.UTC(y, m - 1, d) - tz();
-};
-const fromMs = (ms) => (typeof ms === "number" ? new Date(ms + tz()).toISOString().slice(0, 10) : "");
-const lines = (arr) => (arr.length ? arr.map((x) => `• ${x}`).join("\n") : B.NS);
-
-/** Flatten a brief into the table's columns (readable in Lark) plus the full JSON. */
-function toFields(model, extra = {}) {
-  const m = B.normalize(model);
-  const fields = {
-    [FIELD.title]: m.project_title,
-    [FIELD.client]: m.client_name,
-    [FIELD.filed]: toMs(m.date_filed),
-    [FIELD.due]: toMs(m.due_date.date),
-    [FIELD.period]: [m.event_period].concat(m.key_dates.map((k) => `• ${[k.date, k.label].filter(Boolean).join(" - ")}`)).join("\n"),
-    [FIELD.venue]: m.venue,
-    [FIELD.objective]: lines(m.objectives),
-    [FIELD.audience]: lines(m.target_audience),
-    [FIELD.kpis]: lines(m.kpis),
-    [FIELD.scope]: lines(m.scope_of_work.map((s) => (s.item ? `${s.item}: ${s.detail}` : s.detail))),
-    [FIELD.budget]: m.budget.amount,
-    [FIELD.budgetType]: B.label(m.budget.type),
-    [FIELD.submission]: B.label(m.proposal_submission.type),
-    [FIELD.submissionDetails]: [m.due_date.date ? `Due ${B.dueText(m)}` : "", B.isMissing(m.proposal_submission.details) ? "" : m.proposal_submission.details].filter(Boolean).join("\n") || B.NS,
-    [FIELD.notes]: lines(m.notes),
-    [FIELD.questions]: m.clarifications.length ? m.clarifications.map((q, i) => `${i + 1}. ${q}`).join("\n") : "",
-    [FIELD.summary]: m.summary,
-    [FIELD.json]: JSON.stringify(m),
-  };
-  if ("filedBy" in extra) fields[FIELD.filedBy] = extra.filedBy || "";
-  if ("sources" in extra) fields[FIELD.sources] = extra.sources || "";
-  if ("status" in extra) fields[FIELD.status] = extra.status;
-  if ("nextSteps" in extra) fields[FIELD.nextSteps] = extra.nextSteps;   // Lark-only, never in the document
-  if ("done" in extra) fields[FIELD.done] = extra.done ? "Yes" : "No";
-  if ("requirement" in extra) {   // single select: "RFP (Request for Proposal)" etc.
-    fields[FIELD.requirement] = cfg().REQUIREMENT_TYPES[extra.requirement]?.label || null;
-  }
-  if ("vat" in extra) {           // multi-select in Lark, but only ever one value
-    const label = cfg().VAT_CHOICES[extra.vat]?.label;
-    fields[FIELD.vat] = label ? [label] : [];
-  }
-  if ("attachments" in extra) fields[FIELD.attachments] = extra.attachments.map((t) => ({ file_token: t }));
-  if (fields[FIELD.due] == null) fields[FIELD.due] = null;   // clears the cell on update
-  if (fields[FIELD.filed] == null) delete fields[FIELD.filed];
-  return fields;
-}
-
-/** Read any Bitable cell as plain text (text cells arrive as segment arrays). */
-function cellText(v) {
-  if (v == null) return "";
-  if (typeof v === "string" || typeof v === "number") return String(v);
-  if (Array.isArray(v)) return v.map((s) => (typeof s === "object" ? s.text ?? s.name ?? s.link ?? "" : String(s))).join("");
-  if (typeof v === "object") return cellText(v.value ?? v.text ?? v.name ?? "");
-  return String(v);
-}
-
-const splitLines = (s) => cellText(s).split("\n").map((l) => l.replace(/^\s*(?:•|\d+\.)\s*/, "").trim())
-  .filter((l) => l && !B.isMissing(l));
-
-/** Map a Lark option name ("RFQ (Request for Quotation)", "No ") back to its key. */
-function matchChoice(choices, value) {
-  const v = String(value || "").trim().toLowerCase();
-  if (!v) return "";
-  return Object.keys(choices).find((k) => choices[k].label.trim().toLowerCase() === v || v.startsWith(k.toLowerCase())) || "";
-}
-
-/** Rebuild a brief from a row: the JSON column first, the readable columns as a fallback. */
-function fromRecord(rec) {
-  const f = rec.fields || {};
-  let model = null;
-  try { model = JSON.parse(cellText(f[FIELD.json])); } catch (_) { /* fall back below */ }
-  if (!model || typeof model !== "object") {
-    const [period, ...keyDates] = cellText(f[FIELD.period]).split("\n");
-    model = {
-      project_title: cellText(f[FIELD.title]), client_name: cellText(f[FIELD.client]),
-      date_filed: fromMs(f[FIELD.filed]), due_date: { date: fromMs(f[FIELD.due]), note: "" },
-      event_period: period, key_dates: keyDates.map((l) => {
-        const [date, ...rest] = l.replace(/^•\s*/, "").split(" - ");
-        return { date, label: rest.join(" - ") };
-      }),
-      venue: cellText(f[FIELD.venue]), objectives: splitLines(f[FIELD.objective]),
-      target_audience: splitLines(f[FIELD.audience]), kpis: splitLines(f[FIELD.kpis]),
-      scope_of_work: splitLines(f[FIELD.scope]).map((l) => {
-        const i = l.indexOf(": ");
-        return i > 0 ? { item: l.slice(0, i), detail: l.slice(i + 2) } : { item: "", detail: l };
-      }),
-      budget: { amount: cellText(f[FIELD.budget]), type: cellText(f[FIELD.budgetType]).toUpperCase() },
-      proposal_submission: { type: cellText(f[FIELD.submission]).toUpperCase(), details: cellText(f[FIELD.submissionDetails]) },
-      notes: splitLines(f[FIELD.notes]), clarifications: splitLines(f[FIELD.questions]),
-      summary: cellText(f[FIELD.summary]),
-    };
-  }
-  // If someone changes the Due Date column in Lark, that wins over the JSON.
-  if (typeof f[FIELD.due] === "number") model.due_date = { ...(model.due_date || {}), date: fromMs(f[FIELD.due]) };
-  return {
-    id: rec.record_id,
-    model: B.normalize(model),
-    status: cellText(f[FIELD.status]) || "New",
-    filedBy: cellText(f[FIELD.filedBy]),
-    sources: cellText(f[FIELD.sources]),
-    nextSteps: (Array.isArray(f[FIELD.nextSteps]) ? f[FIELD.nextSteps] : f[FIELD.nextSteps] ? [f[FIELD.nextSteps]] : [])
-      .map(cellText).filter(Boolean),
-    done: cellText(f[FIELD.done]).trim().toLowerCase() === "yes",   // "No" or empty = still active
-    requirement: matchChoice(cfg().REQUIREMENT_TYPES, cellText(f[FIELD.requirement])),
-    vat: matchChoice(cfg().VAT_CHOICES, [].concat(f[FIELD.vat] || []).map(cellText)[0] || ""),
-    attachments: (Array.isArray(f[FIELD.attachments]) ? f[FIELD.attachments] : [])
-      .filter((a) => a && a.file_token)
-      .map((a) => ({ token: a.file_token, name: a.name || "file", size: a.size || 0, url: a.url || a.tmp_url || "" })),
-    modified: typeof f[FIELD.modified] === "number" ? f[FIELD.modified] : null,
-  };
-}
-
-// ---- operations ---------------------------------------------------------------
+/** Read the columns, check them, then read every brief (oldest first, as Lark returns them). */
 async function listAll(onProgress) {
-  const out = [];
-  let page = "";
-  for (let i = 0; i < 40; i++) {   // 40 × 500 rows is plenty; guards against loops
-    const data = await api(`/records/search?page_size=500${page ? `&page_token=${encodeURIComponent(page)}` : ""}`,
-      { automatic_fields: false });
-    out.push(...(data.items || []).map(fromRecord));
-    onProgress?.(out.length);
-    if (!data.has_more || !data.page_token) break;
-    page = data.page_token;
-  }
-  return out;
+  const { rows, schema: checked } = await ops.loadBriefs(call, table(), onProgress);
+  Object.assign(schema, checked);
+  return rows;
 }
 
-function uuid() {
-  if (crypto.randomUUID) return crypto.randomUUID();
-  const b = crypto.getRandomValues(new Uint8Array(16));
-  b[6] = (b[6] & 0x0f) | 0x40; b[8] = (b[8] & 0x3f) | 0x80;
-  const hex = [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-}
+/** A new row. `state`: { model, nextSteps, requirement, vat, attachments: [file_token] }. */
+const create = (state, extra, clientToken = newClientToken()) =>
+  auth.track(() => ops.createBrief(call, table(), schema, state, { ...extra, clientToken }));
 
-/** Create a row. clientToken makes retries idempotent (no duplicate rows). */
-async function create(model, extra, clientToken = uuid()) {
-  const fields = toFields(model, { status: "New", done: false, ...extra });
-  if (fields[FIELD.due] == null) delete fields[FIELD.due];
-  const data = await api(`/records?client_token=${clientToken}`, { fields });
-  return fromRecord(data.record || { record_id: data.record_id, fields });
-}
+/** Save an opened brief: only the cells that changed, and only if they still hold what was loaded. */
+const update = (row, before, after, opts) =>
+  auth.track(() => ops.updateBrief(call, table(), schema, row, before, after, opts));
 
-async function update(id, model, extra) {
-  const data = await api("/records/batch_update", { records: [{ record_id: id, fields: toFields(model, extra) }] });
-  const rec = (data.records || [])[0];
-  return rec ? fromRecord(rec) : null;
-}
+const setDone = (id, done) => auth.track(() => ops.setDone(call, table(), schema, id, done));
+
+const remove = (id) => auth.track(() => ops.deleteBrief(call, table(), id));
 
 /** Upload one file into the Base (Drive "media" API) and return its file_token. */
 async function uploadFile(file) {
+  if (file.size > LARK.maxUploadMb * 1048576) {
+    throw new LarkError("too large", { json: { code: 413, msg: `“${file.name}” is over ${LARK.maxUploadMb} MB, the most the connection service takes. Compress it first.` } });
+  }
+  const t = table();
   const form = new FormData();
   form.append("file_name", file.name);
   form.append("parent_type", "bitable_file");
-  form.append("parent_node", cfg().LARK_APP_TOKEN);
+  form.append("parent_node", t.app);
   form.append("size", String(file.size));
-  form.append("extra", JSON.stringify({ bitablePerm: { tableId: cfg().LARK_TABLE_ID } }));  // advanced-permission Bases
-  form.append("file", file, file.name);
-  const target = `${cfg().LARK_API_BASE}/drive/v1/medias/upload_all`;
-  const data = await fetchJSON(`${cfg().LARK_PROXY_URL}/proxy?url=${encodeURIComponent(target)}`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token()}` },   // the browser sets the multipart boundary
-    body: form,
-  }, 180000);
-  checkAuth(data);
-  if (data.code === 413 || /too large/i.test(data.error || data.msg || "")) {
-    throw new LarkError(`“${file.name}” is too large for the Lark connection.`, 413);
+  form.append("extra", JSON.stringify({ bitablePerm: { tableId: t.table } }));   // advanced-permission Bases
+  form.append("file", file, file.name);   // the browser sets the multipart boundary
+  const { json, status } = await larkUpload(`${LARK.api}/drive/v1/medias/upload_all`, form, { token: token() });
+  if (status === 413 || /too large/i.test(json.error || json.msg || "")) {
+    throw new LarkError("too large", { json: { code: 413, msg: `“${file.name}” is too large for the connection service.` } });
   }
-  if (data.code !== 0 || !data.data?.file_token) fail(data);
-  return data.data.file_token;
+  if (Number(json.code) !== 0 || !json.data || !json.data.file_token) throw new LarkError("Lark error", { status, json });
+  return json.data.file_token;
 }
 
-/** Set only the Done column (the brief's content is untouched). */
-async function setDone(id, done) {
-  await api("/records/batch_update", { records: [{ record_id: id, fields: { [FIELD.done]: done ? "Yes" : "No" } }] });
-}
-
-/** Permanently delete a row (batch endpoint, since the proxy only forwards POST). */
-async function remove(id) {
-  try {
-    await api("/records/batch_delete", { records: [id] });
-  } catch (err) {
-    if (err.code === 1254302 || err.code === 91403) {
-      throw new LarkError("Your Lark account isn't allowed to delete rows in the briefs table. Ask the Base admin, or mark it Done instead.", err.code);
-    }
-    throw err;
-  }
-}
-
-export { FIELD, LarkError, uploadFile, setDone, remove, warmup, listAll, create, update, toFields, fromRecord, uuid };
+export { schema, listAll, create, update, setDone, remove, uploadFile, newClientToken as uuid };

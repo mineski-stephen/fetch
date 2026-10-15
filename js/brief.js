@@ -3,7 +3,9 @@
  * the PDF, the chat text and the Lark row. Everything here is pure functions.
  */
 
+const SCHEMA_VERSION = 1;
 const NS = "Not specified";
+const UNTITLED = "Untitled Project";   // shown for a brief with no title; never written to Lark as data
 const BUDGET_TYPES = ["ALL-IN", "BASELINE / BALLPARK", "TO BE CONFIRMED", "NOT SPECIFIED"];
 const SUBMISSION_TYPES = ["PAPER PASS ONLY", "PITCH / PRESENTATION", "NOT SPECIFIED"];
 const LABELS = {
@@ -47,17 +49,21 @@ function vatChoice(v) {
   return out;
 }
 
+/** Was this document written by a newer version of Fetch than this page knows?
+ *  Such a brief must not be saved from here: normalize() would drop what it doesn't know. */
+const isNewer = (raw) => Number(raw && raw.schema_version) > SCHEMA_VERSION;
+
 /** Coerce anything (proxy output, a Lark row, an older version) into schema v1. */
 function normalize(raw) {
   raw = raw && typeof raw === "object" ? raw : {};
   const budget = raw.budget || {}, sub = raw.proposal_submission || {}, due = raw.due_date || {};
   const dueDate = validISO(due.date);
   return {
-    schema_version: 1,
+    schema_version: SCHEMA_VERSION,
     date_filed: validISO(raw.date_filed) || todayISO(),
     due_date: { date: dueDate, note: str(due.note, dueDate ? "" : NS) },
     client_name: str(raw.client_name),
-    project_title: str(raw.project_title, "Untitled Project"),
+    project_title: str(raw.project_title, UNTITLED),
     project_title_is_placeholder: !!raw.project_title_is_placeholder,
     event_period: str(raw.event_period),
     key_dates: pairs(raw.key_dates, "date", "label"),
@@ -238,6 +244,6 @@ function fileStem(m) {
 }
 
 export {
-  NS, BUDGET_TYPES, SUBMISSION_TYPES, label, isMissing, normalize, todayISO, validISO,
+  SCHEMA_VERSION, NS, UNTITLED, BUDGET_TYPES, SUBMISSION_TYPES, label, isMissing, isNewer, normalize, todayISO, validISO,
   fmtDate, daysUntil, dueBadge, dueText, toMarkdown, toChatText, toChatHtml, fileStem,
 };

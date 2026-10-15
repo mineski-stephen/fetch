@@ -17,33 +17,56 @@ import * as extract from "./extract.js";
 import * as lark from "./lark.js";
 import * as paper from "./doc.js";   // not "doc": that name is used for the open brief below
 import * as pdf from "./pdf.js";
-import * as settingsView from "./settings-view.js";
-import { cfg, geminiKey, SETTINGS_EVENT } from "./settings.js";
+import { createSettingsView, fmtLeft, fmtTime } from "./settings-view.js";
+import * as settings from "./settings.js";
+import { cfg, geminiKey } from "./settings.js";
+import { larkService, geminiService, onAnyService, blockedHosts, describe } from "./net.js";
+import { describeWrite, isUncertain, LarkError } from "./errors.js";
+import { APP, ENV_LABEL, RULES, LARK } from "./config.js";
+import { sigs } from "./rows.js";
 import { ICONS } from "./icons.js";
 import { $, $$, h, ic, fillIcons, toast, busy, flashDone, popBadge, copyText, flash, openMenu, closeMenu, confirmDanger,
          radioKeys, confetti, store, recall, reduceMotion } from "./ui.js";
 
 const clone = (o) => JSON.parse(JSON.stringify(o));
 const fingerprint = (m) => JSON.stringify(B.normalize(m));
-const emitStatus = () => document.dispatchEvent(new Event(extract.STATUS_EVENT));
+const NEWER_MSG = "This was saved by a newer version of Fetch. Reload the page to edit it.";
 
 // ---- storage (localStorage; null clears a key) ----------------------------
 const save = (key, value) => store("local", key, value == null ? undefined : value);
+
+// What "Clear local data" and the end of a session remove (the login and the theme are kept).
+const KEYS = { draft: "fetch.draft", eta: "fetch.etaFactor", edits: "fetch.edits" };
+const CACHE_PREFIX = "fetch.cache.";   // cached list of briefs, one key per table
+const cacheKey = () => { const t = cfg().table; return t ? `${CACHE_PREFIX}${t.app}:${t.table}` : ""; };
+/** Remove every cached list of briefs (any table). Shared computers: nothing outlives a session. */
+function dropCache() {
+  try {
+    for (const k of Object.keys(localStorage)) if (k.startsWith(CACHE_PREFIX)) localStorage.removeItem(k);
+  } catch (_) { /* storage blocked: nothing was cached */ }
+}
 
 // ---- state --------------------------------------------------------------
 const S = {
   view: null,
   items: [],        // compose: { id, file, kind, thumb }
   job: null,        // running extraction
-  draft: recall("local", "fetch.draft"),   // { model, original, meta, sources, createdAt, clientToken }
+  draft: recall("local", KEYS.draft),   // { model, original, meta, sources, createdAt, clientToken, newer }
   doc: null,        // what the result view shows
   edits: {},        // unsaved edits to saved briefs, by record id: { model, nextSteps, attachments }
   draftFiles: [],   // File objects behind the draft (memory only; attached to the Lark row on save)
   briefs: null, briefsAt: 0, briefsLoading: null, larkError: null, highlight: null,
+  working: new Set(),   // ids with a Done change in flight
 };
 if (S.draft && !S.draft.model) S.draft = null;
-const cached = recall("local", "fetch.briefsCache");
-if (Array.isArray(cached)) S.briefs = cached;
+// The cached list gives an instant first paint, but only while a login is alive (it is dropped
+// when a session ends) and never as the basis for a write: saving re-reads the row.
+if (auth.currentToken() && cacheKey()) {
+  const cached = recall("local", cacheKey());
+  if (cached && cached.v === 2 && Array.isArray(cached.rows)) { S.briefs = cached.rows; S.briefsAt = 0; S.cachedAt = cached.at; }
+} else {
+  dropCache();
+}
 
 // ---- small UI helpers -----------------------------------------------------
 function fmtBytes(n) {
@@ -62,9 +85,14 @@ function downloadText(name, text, type = "text/markdown") {
 }
 
 // ---- views & routing --------------------------------------------------------
+const TITLES = { login: "Log in", busy: "Logging in", compose: "New brief", processing: "Extracting a brief",
+  result: "Brief", briefs: "All briefs", settings: "Settings" };
+const setTitle = (text) => { document.title = `${text} · ${APP.name}`; };
+
 function showView(name) {
   const changed = S.view !== name;
   S.view = name;
+  setTitle(TITLES[name] || APP.name);
   paper.close();
   $$(".view").forEach((v) => v.classList.toggle("active", v.dataset.view === name));
   document.body.dataset.view = name;
@@ -81,6 +109,7 @@ const go = (hash) => { if (location.hash !== hash) location.hash = hash; else ro
 function route() {
   const [a, b] = location.hash.replace(/^#\/?/, "").split("/");
   renderHeader();
+  updateWriteNote();
   if (a !== "settings" && !auth.currentToken()) return showLogin();
   if (a === "briefs" && b) return showRecord(decodeURIComponent(b));
   if (a === "briefs") return showBriefs();
@@ -96,7 +125,7 @@ function showSettings() {
 
 // ---- Lark login ------------------------------------------------------------------
 const LOW_SESSION_MS = 10 * 60 * 1000;
-const loginState = { note: "", returnTo: "", redirectChecked: false, warnedLow: false };
+const loginState = { note: "", returnTo: "", redirectChecked: false };
 
 function showLogin() {
   loginState.returnTo = location.hash && location.hash !== "#/login" ? location.hash : "#/";
@@ -104,7 +133,7 @@ function showLogin() {
   $("#loginMsg").hidden = !loginState.note;
   $("#loginMsg").textContent = loginState.note;
   busy($("#loginBtn"), false);
-  if (!loginState.redirectChecked) {   // is this address registered on the Lark app?
+  if (!loginState.redirectChecked || loginState.note) {   // is this address registered on the Lark app? (again after a failure)
     loginState.redirectChecked = true;
     auth.redirectProblem().then((problem) => {
       $("#redirectMsg").hidden = !problem;
@@ -124,19 +153,22 @@ async function login(returnTo) {
   }
 }
 
-/** The login ended (expired, logged out, or Lark refused the token). Unsaved work
- *  stays: the draft is in localStorage and edits are kept in memory. */
+/** The login ended (expired, logged out, or Lark refused the token). Unsaved work stays:
+ *  the draft is in localStorage and edits are kept for the next login. Cached business
+ *  data does not: it is dropped with the session. */
 function sessionEnded(message) {
-  const wasIn = !!auth.hadSession();
-  auth.clearSession();
   document.querySelectorAll("dialog[open]").forEach((d) => d.close());   // shared sheets resolve and remove themselves
   closeMenu();
-  loginState.note = message || "Your Lark login has ended. Log in again to keep going.";
-  loginState.warnedLow = false;
+  S.briefs = null;
+  S.briefsAt = 0;
+  S.larkError = null;
+  dropCache();
+  cacheBriefs(false);
+  loginState.note = message || "Your login ended. Log in again to keep going.";
   renderHeader();
   if (S.view === "settings") return settingsView.show();
   if (S.job) return;   // let a running extraction finish; it reports the login error itself
-  if (wasIn || S.view !== "login") showLogin();
+  showLogin();
 }
 
 function initials(name) {
@@ -144,15 +176,20 @@ function initials(name) {
 }
 
 function renderHeader() {
+  const overrides = cfg().overrides;   // the red badge, whenever anything is overridden
+  $("#envBadge").hidden = !ENV_LABEL;
+  $("#envBadge").textContent = ENV_LABEL;
+  $("#overrideBadge").hidden = !overrides.length;
+  $("#overrideBadge").title = `Overridden: ${overrides.join("; ")}`;
   const signedIn = !!auth.currentToken();
   document.body.dataset.auth = signedIn ? "in" : "out";
   if (!signedIn) return;
   const left = auth.msLeft();
   const pill = $("#sessionPill");
-  $("#sessionLeft").textContent = settingsView.fmtLeft(left);
+  $("#sessionLeft").textContent = fmtLeft(left);
   pill.classList.toggle("is-low", left < LOW_SESSION_MS);
-  pill.title = `Your login lasts until ${settingsView.fmtTime(auth.endsAt())}`;
-  pill.setAttribute("aria-label", `Logged in for ${settingsView.fmtLeft(left)} more, until ${settingsView.fmtTime(auth.endsAt())}`);
+  pill.title = `Your login lasts until ${fmtTime(auth.endsAt())}`;
+  pill.setAttribute("aria-label", `Logged in for ${fmtLeft(left)} more, until ${fmtTime(auth.endsAt())}`);
   const u = auth.user() || {};
   const img = $("#avatar");
   img.hidden = !u.avatar;
@@ -162,33 +199,35 @@ function renderHeader() {
   $("#meLink").title = u.name ? `${u.name} · Settings` : "Settings";
 }
 
-/** Every 20 s: update the clock, warn 5 minutes before the end, and end the session on time. */
-function tickSession() {
-  if (!auth.hadSession()) return;
-  if (!auth.currentToken()) return sessionEnded("Your login ended after about 2 hours. Log in again to keep going.");
-  renderHeader();
-  settingsView.tick();
-  if (!loginState.warnedLow && auth.msLeft() < 5 * 60 * 1000) {
-    loginState.warnedLow = true;
-    toast(`Your Lark login ends at ${settingsView.fmtTime(auth.endsAt())}. Log in again to keep working without a break.`, {
-      type: "error", action: "Log in again", onAction: () => login(location.hash), timeout: 0,
-    });
-  }
+/** Why saving, Done and Delete are off right now ("" if they're on): a login that can only read,
+ *  or a table that doesn't match what Fetch expects (schema.js lists the details). */
+function writeProblem() {
+  if (!auth.canWrite()) return "Your login can only read the tables. Log in again to allow saving.";
+  if (lark.schema.problems.length) return "Saving is off until the briefs table is fixed. Tell the tool owner.";
+  return "";
 }
 
-/** Long actions need a little time left on the login. */
-function ensureLoginTime(ms, what) {
-  if (auth.msLeft() > ms) return true;
-  toast(`Your Lark login is about to end, so Fetch didn't ${what}. Log in again first.`, {
-    type: "error", action: "Log in again", onAction: () => login(location.hash),
-  });
-  return false;
+/** Plain-language list for the callout and Settings. */
+const schemaProblems = () => (auth.canWrite() ? [] : ["Your login can only read the tables. Log in again to allow saving."])
+  .concat(lark.schema.problems, lark.schema.partial);
+
+/** Show or hide the "saving is off" callout. */
+function updateWriteNote() {
+  const list = auth.currentToken() ? schemaProblems() : [];
+  const note = $("#writeNote");
+  note.hidden = !list.length;
+  if (!list.length) return;
+  const tableProblem = lark.schema.problems.length > 0 || lark.schema.partial.length > 0;
+  $("#writeNoteText").replaceChildren(h("b", {}, writeProblem() ? "Saving is switched off." : "Some actions are switched off."),
+    tableProblem ? " The briefs table doesn't match what Fetch expects. Tell the tool owner." : "");
+  $("#writeNoteList").replaceChildren(...list.map((p) => h("li", {}, p)));
 }
 
 /** Why extraction can't run right now ("" if it can). */
 function setupProblem() {
-  if (!cfg().GEMINI_PROXY_URL) return "The extraction service isn't connected. Add its address in Settings.";
-  if (extract.warm.configured === false && !geminiKey()) {
+  if (!cfg().geminiUrl) return "The extraction service isn't connected. Add its address in Settings.";
+  if (geminiService.status.state === "outdated") return "The extraction service is out of date. Ask the admin to redeploy it.";
+  if (geminiService.status.state === "awake" && geminiService.status.info.configured === false && !geminiKey()) {
     return "Add your Gemini API key in Settings to start extracting briefs.";
   }
   return "";
@@ -198,11 +237,18 @@ function updateSetupNote() {
   const problem = setupProblem();
   $("#setupNote").hidden = !problem;
   if (problem) {
-    $("#setupText").textContent = cfg().GEMINI_PROXY_URL
-      ? "add your Gemini API key to start extracting briefs."
-      : "connect the extraction service.";
+    $("#setupText").textContent = !cfg().geminiUrl ? "connect the extraction service."
+      : geminiService.status.state === "outdated" ? "the extraction service is out of date. Ask the admin to redeploy it."
+        : "add your Gemini API key to start extracting briefs.";
   }
   updateCompose();
+}
+
+/** The red banner at the top of the page when the browser blocks a service. */
+function updateBlockNote() {
+  const hosts = blockedHosts();
+  $("#blockNote").hidden = !hosts.length;
+  $("#blockHost").textContent = hosts.join(" and ");
 }
 
 // ==== 1. Compose ================================================================
@@ -236,14 +282,15 @@ function renderFiles() {
 }
 
 function addFiles(fileList, { pasted = false } = {}) {
-  const maxBytes = cfg().MAX_UPLOAD_MB * 1048576;
+  const { maxUploadMb, maxFiles } = extract.limits();   // what the extraction service reports, else the config's
+  const maxBytes = maxUploadMb * 1048576;
   let skipped = 0;
   for (let file of fileList) {
     if (!file || !file.size) continue;
-    if (S.items.length >= cfg().MAX_FILES) { toast(`You can add up to ${cfg().MAX_FILES} files per brief.`, { type: "error" }); break; }
+    if (S.items.length >= maxFiles) { toast(`You can add up to ${maxFiles} files per brief.`, { type: "error" }); break; }
     if (S.items.some((it) => it.file.name === file.name && it.file.size === file.size && it.file.lastModified === file.lastModified)) { skipped++; continue; }
     const total = S.items.reduce((s, it) => s + it.file.size, 0) + file.size;
-    if (total > maxBytes) { toast(`That would be over ${cfg().MAX_UPLOAD_MB} MB in total. Try compressing the file first.`, { type: "error" }); break; }
+    if (total > maxBytes) { toast(`That would be over ${maxUploadMb} MB in total. Try compressing the file first.`, { type: "error" }); break; }
     if (pasted && /^image\.(png|jpe?g|gif|webp)$/i.test(file.name)) {
       const t = new Date();
       const stamp = `${t.getHours()}-${String(t.getMinutes()).padStart(2, "0")}-${String(t.getSeconds()).padStart(2, "0")}`;
@@ -482,7 +529,7 @@ function tick() {
 
 async function startExtraction() {
   if (!composeReady() || S.job) return;
-  if (!ensureLoginTime(2 * 60 * 1000, "start the extraction")) return;
+  if (!auth.ensureTime(2 * 60 * 1000)) return;
   const problem = setupProblem();
   if (problem) {
     return toast(problem, { type: "error", action: "Open Settings", onAction: () => go("#/settings/key") });
@@ -504,8 +551,8 @@ async function startExtraction() {
 
   // The free Render instance sleeps when idle. If it doesn't answer at once,
   // show a "waking up" phase and wait for it before uploading anything.
-  if (!extract.isFresh()) {
-    const awake = extract.ensureAwake();
+  if (!geminiService.isFresh()) {
+    const awake = geminiService.wake();
     const quick = await Promise.race([awake, new Promise((r) => setTimeout(() => r("slow"), 1200))]);
     if (S.job !== job) return;
     if (quick !== true) {
@@ -521,13 +568,16 @@ async function startExtraction() {
       if (S.job !== job) return;
       if (!ok) {
         S.job = null;
-        if (extract.warm.blocked) {
-          return showLoaderError({ code: "network", message: "An ad blocker or privacy extension in this browser is blocking Fetch's extraction service. "
-            + `Allow ${new URL(cfg().GEMINI_PROXY_URL).host} in the blocker (or pause it for this page), reload, and try again.` });
+        const state = geminiService.status.state;
+        if (state === "blocked") {
+          return showLoaderError({ code: "network", message: describe({ network: true }) });
         }
-        return showLoaderError({ code: "network", message: `Couldn't reach the extraction service at ${cfg().GEMINI_PROXY_URL}${
-          cfg().GEMINI_OVERRIDDEN ? " (a test address set by the page link; open the page with ?reset to use the normal one)" : ""
-        }. Check your connection, then try again.` });
+        if (state === "outdated") {
+          return showLoaderError({ code: "outdated", message: `The extraction service is out of date (${geminiService.status.detail}). Ask the admin to redeploy it.` });
+        }
+        return showLoaderError({ code: "network", message: `Fetch can't reach its extraction service (${geminiService.host()}).${
+          cfg().overrides.some((o) => o.startsWith("Extraction service")) ? " It's a test address; open the page with ?reset to use the normal one." : ""
+        } Check your connection, then try again.` });
       }
     }
     if (setupProblem()) {
@@ -548,7 +598,7 @@ async function startExtraction() {
   job.abort = req.abort;
 
   try {
-    const res = await req.promise;
+    const res = await auth.track(req.promise);   // the clock won't end the login under a running extraction
     if (job.uploadedAt) extract.calibrate(job.est.work, (performance.now() - job.uploadedAt) / 1000);
     clearInterval(job.timer);
     setRing(1);
@@ -560,6 +610,7 @@ async function startExtraction() {
     const model = B.normalize(res.brief);
     setDraft({
       model, original: clone(model), meta: res.meta, createdAt: Date.now(), clientToken: lark.uuid(),
+      newer: B.isNewer(res.brief),   // made by a newer extraction service than this page knows: don't save from here
       sources: [...files.map((f) => f.name), ...(text ? ["Typed / pasted text"] : [])], nextSteps: [],
     });
     S.draftFiles = [...files, ...(text ? [new File([text], "Brief text.txt", { type: "text/plain" })] : [])];
@@ -600,7 +651,7 @@ function showLoaderError(err) {
   $("#cancelBtn").hidden = true;
   $("#loaderError").hidden = false;
   const retryable = !["unsupported_file", "no_input", "too_large", "too_many_files", "content_rejected",
-    "forbidden_origin", "not_configured", "invalid_api_key", "not_authorized",
+    "forbidden_origin", "not_configured", "invalid_api_key", "not_authorized", "outdated",
     "login_required", "login_expired", "login_invalid"].includes(err.code);
   $("#loaderErrorText").textContent = err.message || "Something went wrong.";
   $("#retryBtn").hidden = !retryable;
@@ -610,6 +661,7 @@ function showLoaderError(err) {
     invalid_api_key: "Your Gemini key needs attention",
     quota_exceeded: "Gemini usage limit reached",
     not_authorized: "Your account doesn't have access",
+    outdated: "The extraction service is out of date",
     login_required: "Please log in again",
     login_expired: "Your login has ended",
     login_invalid: "Please log in again",
@@ -646,13 +698,13 @@ function wireProcessing() {
 // ==== 3. Result (draft or saved brief) ===========================================
 function setDraft(draft) {
   S.draft = draft;
-  save("fetch.draft", draft);
+  save(KEYS.draft, draft);
 }
 
 let persistTimer = null;
 function persistDraftSoon() {
   clearTimeout(persistTimer);
-  persistTimer = setTimeout(() => S.doc?.mode === "draft" && S.draft && save("fetch.draft", S.draft), 400);
+  persistTimer = setTimeout(() => S.doc?.mode === "draft" && S.draft && save(KEYS.draft, S.draft), 400);
 }
 
 function showDraft() {
@@ -664,6 +716,7 @@ function showDraft() {
     requirement: d.requirement ?? d.model.requirement?.type ?? "",
     vat: d.vat ?? B.normalize(d.model).vat.applies,
     attachments: S.draftFiles.map((f) => ({ name: f.name, size: f.size, file: f })),
+    newer: !!d.newer,
     filesLost: !S.draftFiles.length && (d.sources || []).length > 0,   // page was reloaded since extraction
   });
 }
@@ -676,7 +729,7 @@ function rememberEdits(doc) {
   if (doc.mode !== "record") return;
   if (isDirty(doc)) {
     S.edits[doc.id] = { model: doc.model, nextSteps: doc.nextSteps, attachments: doc.attachments,
-      requirement: doc.requirement, vat: doc.vat };
+      requirement: doc.requirement, vat: doc.vat, sig: doc.sig };
   }
   else delete S.edits[doc.id];
 }
@@ -699,7 +752,7 @@ function onExtrasChange() {
 function stepOptions(doc) {
   const seen = new Map();
   const add = (v) => { const t = String(v || "").trim(); if (t && !seen.has(t.toLowerCase())) seen.set(t.toLowerCase(), t); };
-  (cfg().NEXT_STEP_OPTIONS || []).forEach(add);
+  RULES.nextSteps.forEach(add);
   (S.briefs || []).forEach((b) => (b.nextSteps || []).forEach(add));
   doc.nextSteps.forEach(add);
   return [...seen.values()];
@@ -727,16 +780,19 @@ function renderExtras() {
   const doc = S.doc;
   if (!doc) return;
   const m = doc.model;
-  renderChoice("#reqChips", "#reqWhy", cfg().REQUIREMENT_TYPES, doc.requirement,
-    { key: m.requirement?.type || "", reason: m.requirement?.reason || "" });
+  // A value Lark holds that isn't one of Fetch's options is kept unless a chip is picked.
+  const kept = (raw, picked) => (raw && !picked ? `Lark has “${raw}” here. It stays unless you pick one.` : "");
+  renderChoice("#reqChips", "#reqWhy", RULES.requirementTypes, doc.requirement,
+    { key: m.requirement?.type || "", reason: kept(doc.requirementRaw, doc.requirement) || m.requirement?.reason || "" });
   const vat = B.normalize(m).vat;   // pick always agrees with its note
-  renderChoice("#vatChips", "#vatWhy", cfg().VAT_CHOICES, doc.vat, { key: vat.applies, reason: vat.reason });
+  renderChoice("#vatChips", "#vatWhy", RULES.vatChoices, doc.vat,
+    { key: vat.applies, reason: kept(doc.vatRaw, doc.vat) || vat.reason });
   const chosen = new Set(doc.nextSteps.map((t) => t.toLowerCase()));
   keepFocus($("#nsChips"), "data-step", () => $("#nsChips").replaceChildren(...stepOptions(doc).map((opt) => h("button", {
     type: "button", class: "chip-opt", "aria-pressed": String(chosen.has(opt.toLowerCase())), "data-step": opt,
   }, chosen.has(opt.toLowerCase()) ? ic("check") : null, opt))));
 
-  const max = cfg().LARK_ATTACH_MAX_MB * 1048576;
+  const max = LARK.maxUploadMb * 1048576;
   const list = $("#attList");
   list.replaceChildren(...doc.attachments.map((a, i) => {
     const tooBig = !a.token && a.size > max;
@@ -744,7 +800,7 @@ function renderExtras() {
       ic(tooBig ? "alert" : "file"),
       h("span", { class: "att-info" }, h("span", { class: "att-name", title: a.name }, a.name),
         h("span", { class: "att-meta" }, [fmtBytes(a.size || 0),
-          a.token ? "in Lark" : tooBig ? `too large (max ${cfg().LARK_ATTACH_MAX_MB} MB)` : "uploads on save"].join(" · "))),
+          a.token ? "in Lark" : tooBig ? `too large (max ${LARK.maxUploadMb} MB)` : "uploads on save"].join(" · "))),
       h("button", { type: "button", class: "att-x", "data-remove": String(i), "aria-label": `Remove ${a.name}` }, ic("x")));
   }));
   list.hidden = !doc.attachments.length;
@@ -798,28 +854,35 @@ function wireExtras() {
   });
 }
 
-/** Upload attachments that aren't in Lark yet. Returns the names that were skipped. */
+/** Upload attachments that aren't in Lark yet. Every file is tried; the row is written only when
+ *  none failed (see confirmSave). Returns the ones that failed, as { name, why }. A login that
+ *  ends mid-way throws instead. */
 async function uploadPending(doc, label) {
-  const max = cfg().LARK_ATTACH_MAX_MB * 1048576;
+  const max = LARK.maxUploadMb * 1048576;
   const pending = doc.attachments.filter((a) => a.file && !a.token);
-  const skipped = [];
+  const failed = [];
   for (let i = 0; i < pending.length; i++) {
     const a = pending[i];
-    if (a.file.size > max) { skipped.push(`${a.name} (over ${cfg().LARK_ATTACH_MAX_MB} MB)`); continue; }
-    label.textContent = `Uploading file ${i + 1} of ${pending.length}…`;
+    if (a.file.size > max) { failed.push({ name: a.name, why: `over ${LARK.maxUploadMb} MB` }); continue; }
+    label.textContent = pending.length > 1 ? `Uploading file ${i + 1} of ${pending.length}…` : "Uploading file…";
     try {
-      a.token = await lark.uploadFile(a.file);   // kept on the item, so a retry won't upload it twice
+      a.token = await auth.track(lark.uploadFile(a.file));   // kept on the item, so a retry won't upload it twice
     } catch (err) {
-      skipped.push(`${a.name} (${err.message})`);
+      if (err.deadToken) throw err;
+      failed.push({ name: a.name, why: describe(err) });
     }
   }
   label.textContent = "Saving…";
-  return skipped;
+  return failed;
 }
 
 const attachedTokens = (doc) => doc.attachments.filter((a) => a.token).map((a) => a.token);
 const attachedList = (doc) => doc.attachments.filter((a) => a.token)
-  .map(({ token, name, size, url }) => ({ token, name, size, url: url || "" }));
+  .map(({ token, name, size }) => ({ token, name, size }));
+
+/** The state ops.js writes: the brief plus what the person picked for Lark's own columns. */
+const stateOf = (model, x) => ({ model, nextSteps: x.nextSteps || [], requirement: x.requirement || "", vat: x.vat || "",
+  attachments: x.attachments || [] });
 
 function openDoc(doc) {
   doc.savedJSON = doc.mode === "record" ? fingerprint(doc.original) : null;
@@ -832,6 +895,7 @@ function openDoc(doc) {
     attachments: doc.savedAttachments || doc.attachments }) : null;
   S.doc = doc;
   showView("result");
+  setTitle(B.isMissing(doc.model.project_title) ? "Brief" : B.normalize(doc.model).project_title);
   const sheet = $("#paper");   // sections animate in only when a brief is opened
   sheet.classList.add("paper-enter");
   clearTimeout(sheet._entering);
@@ -869,6 +933,7 @@ function refreshResult() {
     meta.push(`Extracted from ${n} source${n === 1 ? "" : "s"} in ${Math.round((doc.meta.duration_ms || 0) / 1000)}s`);
     meta.push("Not saved to Lark yet");
   }
+  if (doc.newer) meta.push(NEWER_MSG);
   $("#resultMeta").textContent = meta.join(" · ");
 
   const warn = $("#warnBanner");
@@ -880,7 +945,8 @@ function refreshResult() {
   const saveBtn = $("#saveBtn");
   if (!saveBtn.classList.contains("is-busy")) {
     saveBtn.querySelector(".label").textContent = record ? (dirty ? "Save changes to Lark" : "All changes saved") : "Save to Lark Base";
-    saveBtn.disabled = record && !dirty;
+    saveBtn.disabled = (record && !dirty) || !!doc.newer || !!writeProblem();
+    saveBtn.title = doc.newer ? NEWER_MSG : writeProblem();
     saveBtn.querySelector(".i").innerHTML = ICONS[record && !dirty ? "check" : "save"];
   }
   $("#resetBtn").hidden = !(record ? dirty : fingerprint(doc.model) !== fingerprint(doc.original));
@@ -951,6 +1017,7 @@ function wireResult() {
 
   $("#saveBtn").onclick = openSaveDialog;
   $("#saveForm").addEventListener("submit", (e) => { e.preventDefault(); confirmSave(); });
+  $("#saveSkip").onclick = () => confirmSave({ skipFailed: true });
   // The sheet stays static (the upload progress writes into its button). Escape and the
   // backdrop close it, except while it's saving.
   const saving = () => $("#saveConfirm").classList.contains("is-busy");
@@ -963,6 +1030,8 @@ function wireResult() {
 function openSaveDialog() {
   const doc = S.doc;
   if (!doc) return;
+  if (doc.newer) return toast(NEWER_MSG, { type: "error" });
+  if (writeProblem()) return toast(writeProblem(), { type: "error" });
   paper.close();
   const m = B.normalize(doc.model);
   const isNew = doc.mode === "draft";
@@ -975,70 +1044,133 @@ function openSaveDialog() {
   if (isNew) rows.push(["Filed by", (auth.user() || {}).name || "You"]);
   $("#saveSummary").replaceChildren(...rows.flatMap(([k, v]) => [h("dt", {}, k), h("dd", { class: B.isMissing(v) ? "is-empty" : null }, v)]));
   $("#saveError").hidden = true;
+  $("#saveSkip").hidden = true;
   $("#saveConfirm .label").textContent = isNew ? "Save to Lark" : "Save changes";
   $("#saveDialog").showModal();
   $("#saveCancel").focus();   // the safe choice has focus
 }
 
-async function confirmSave() {
+const larkLink = () => ({ href: cfg().table ? cfg().table.url : "#", text: "Open in Lark" });
+/** The words for a failed write (see errors.js describeWrite). */
+const sayWrite = (err, extra = {}) => describeWrite(err, { app: APP.name, host: larkService.host(), blocked: blockedHosts(), ...extra });
+
+/** What the read-back found, as a toast: "All 15 fields checked in Lark." or the list to check. */
+function readBackNote(res) {
+  if (res.readBackError) return { warn: "Saved, but Fetch couldn't read it back to check it.", link: larkLink() };
+  if (res.mismatches && res.mismatches.length) {
+    return { warn: `Check these in Lark: ${res.mismatches.map((m) => `${m.field}: sent “${m.want}”, Lark has “${m.got}”`).join("; ")}`,
+      link: larkLink() };
+  }
+  const n = Object.keys(res.written || {}).length;
+  return { ok: n ? `All ${n} field${n === 1 ? "" : "s"} checked in Lark.` : "" };
+}
+
+function showSaveError(message, { label = "Try again", skip = false } = {}) {
+  $("#saveConfirm .label").textContent = label;
+  $("#saveSkip").hidden = !skip;
+  $("#saveError").textContent = message;
+  $("#saveError").hidden = false;
+}
+
+/** Save the open brief: files first (any that fail stop the save and offer a choice), then the
+ *  row. A new row is created once (the draft's client token); an opened one changes only the
+ *  cells the person edited, if they still hold what was loaded. Then it reads the row back. */
+async function confirmSave({ skipFailed = false } = {}) {
   const doc = S.doc;
+  if (!doc) return;
   const btn = $("#saveConfirm");
   const isNew = doc.mode === "draft";
-  if (!ensureLoginTime(60 * 1000, "save")) return;
+  if (doc.newer) return showSaveError(NEWER_MSG);
+  const blocked = writeProblem();
+  if (blocked) return showSaveError(blocked);
+  if (!auth.ensureTime(60 * 1000)) return;
   busy(btn, true, "Saving…");
   $("#saveCancel").disabled = true;
+  $("#saveSkip").hidden = true;
   $("#saveError").hidden = true;
+  const label = $("#saveConfirm .label");
+  let outcome = null;
   try {
-    let rec;
+    let failed = [];
+    if (skipFailed) {   // "Save without these files": leave out whatever isn't in Lark yet
+      failed = doc.attachments.filter((a) => a.file && !a.token).map((a) => ({ name: a.name, why: "left out" }));
+    } else {
+      failed = await uploadPending(doc, label);
+      if (failed.length) {   // never skip a file silently: the row isn't written until the person chooses
+        busy(btn, false);
+        $("#saveCancel").disabled = false;
+        return showSaveError(`${failed.length === 1 ? "This file" : "These files"} didn't upload, so nothing was saved: `
+          + `${failed.map((f) => `${f.name} (${f.why})`).join("; ")}.`, { skip: true });
+      }
+    }
+    const tokens = attachedTokens(doc);
+    let res, row;
     if (isNew) {
-      const filedBy = (auth.user() || {}).name || "";
-      const skipped = await uploadPending(doc, $("#saveConfirm .label"));
-      const extra = { filedBy, sources: (doc.sources || []).join("\n") };
-      if (doc.nextSteps.length) extra.nextSteps = doc.nextSteps;
-      if (doc.requirement) extra.requirement = doc.requirement;
-      if (doc.vat) extra.vat = doc.vat;
-      if (attachedTokens(doc).length) extra.attachments = attachedTokens(doc);
-      rec = await lark.create(doc.model, extra, S.draft?.clientToken);
-      Object.assign(rec, { nextSteps: [...doc.nextSteps], attachments: attachedList(doc), requirement: doc.requirement, vat: doc.vat });
-      if (skipped.length) toast(`Saved, but these files weren't attached: ${skipped.join("; ")}`, { type: "warn" });
+      const me = auth.user() || await auth.loadUser().catch(() => null);   // never write a blank "Filed by"
+      res = await lark.create(stateOf(doc.model, { ...doc, attachments: tokens }),
+        { filedBy: (me && me.name) || "", sources: (doc.sources || []).join("\n") }, S.draft?.clientToken);
+      row = res.row;
+    } else {
+      const was = { nextSteps: doc.savedNextSteps, requirement: doc.savedRequirement, vat: doc.savedVat,
+        attachments: (doc.savedAttachments || []).map((a) => a.token) };
+      res = await lark.update({ id: doc.id, sig: doc.sig, model: doc.original }, stateOf(doc.original, was),
+        stateOf(doc.model, { ...doc, attachments: tokens }), { force: !!doc.overwrite });
+      row = res.row;
+    }
+    outcome = { res, row, failed };
+  } catch (err) {
+    busy(btn, false);
+    $("#saveCancel").disabled = false;
+    if (err.name === "AlreadyDone" && err.changed) {
+      // Someone changed these cells in Lark. Nothing was written. Take Lark's cells as the new
+      // base, so saving again overwrites only what this person edited.
+      doc.sig = { ...doc.sig, ...sigs(err.fresh.fields) };
+      doc.overwrite = true;
+      loadBriefs().catch(() => {});   // the list refreshes behind the dialog
+      return showSaveError(`${err.message} ${err.detail} Choose Save anyway to overwrite it with your version.`, { label: "Save anyway" });
+    }
+    if (isUncertain(err) || err.notFound) loadBriefs().catch(() => {});   // see what Lark really holds before a retry
+    showSaveError(err.name === "WriteBlocked" ? `${err.message} ${err.problems.join(" ")}` : sayWrite(err),
+      { label: err.deadToken ? "Save to Lark" : "Try again" });
+  }
+  if (!outcome) return;
+
+  // Lark has the row. Whatever goes wrong from here is the page's own tidying up, never "nothing was written".
+  const { res, row, failed: left } = outcome;
+  try {
+    if (isNew) {
       setDraft(null);
       S.draftFiles = [];
-      S.highlight = rec.id;
-      upsertBrief(rec, true);
+      S.highlight = row.id;
+      upsertBrief(row, true);
     } else {
-      const skipped = await uploadPending(doc, $("#saveConfirm .label"));
-      await lark.update(doc.id, doc.model, { nextSteps: doc.nextSteps, attachments: attachedTokens(doc),
-        requirement: doc.requirement, vat: doc.vat });
-      const model = B.normalize(doc.model);
-      doc.original = clone(model);
-      doc.savedJSON = fingerprint(model);
+      doc.overwrite = false;
+      doc.original = clone(row.model);   // the row as Lark holds it now, not as we sent it
+      doc.savedJSON = fingerprint(row.model);
+      doc.savedNextSteps = row.nextSteps; doc.savedAttachments = row.attachments;
+      doc.savedRequirement = row.requirement; doc.savedVat = row.vat;
+      doc.sig = row.sig;
       doc.attachments = attachedList(doc);
       doc.savedExtras = extrasKey(doc);
       delete S.edits[doc.id];
       renderExtras();
-      if (skipped.length) toast(`Saved, but these files weren't attached: ${skipped.join("; ")}`, { type: "warn" });
-      // The update response only echoes the columns we sent, so keep Status etc. from the list.
-      upsertBrief({ id: doc.id, model: clone(model), nextSteps: [...doc.nextSteps], attachments: attachedList(doc),
-        requirement: doc.requirement, vat: doc.vat }, false);
+      upsertBrief(row, false);
     }
     busy(btn, false);
     $("#saveCancel").disabled = false;
     $("#saveDialog").close();
-    if (isNew) {
-      confetti($("#saveBtn"));   // once per milestone: the first save of a new brief
-      toast("Saved to Lark Base. Here's every brief the team has filed.", { type: "success",
-        link: { href: cfg().LARK_TABLE_URL, text: "Open in Lark" } });
-      go("#/briefs");
+    const note = readBackNote(res);
+    if (left.length) toast(`Saved without ${left.map((f) => f.name).join(", ")}.`, { type: "warn" });
+    if (note.warn) toast(note.warn, { type: "warn", link: note.link });
+    else if (isNew) {
+      try { confetti($("#saveBtn")); } catch (_) { /* decoration only */ }   // once per milestone: the first save of a new brief
+      toast("Saved to Lark Base. Here's every brief the team has filed.", { type: "success", detail: note.ok || undefined, link: larkLink() });
     } else {
-      toast("Changes saved to Lark.", { type: "success" });
-      refreshResult();
+      toast(res.nothing ? "Nothing needed saving in Lark." : "Changes saved to Lark.", { type: "success", detail: note.ok || undefined });
     }
-  } catch (err) {
-    busy(btn, false);
-    $("#saveCancel").disabled = false;
-    $("#saveConfirm .label").textContent = "Try again";
-    $("#saveError").textContent = err.message || "Couldn't save to Lark.";
-    $("#saveError").hidden = false;
+    if (isNew) go("#/briefs"); else refreshResult();
+  } catch (e) {
+    console.error(e);
   }
 }
 
@@ -1051,13 +1183,19 @@ function upsertBrief(rec, prepend) {
   cacheBriefs();
 }
 
-function cacheBriefs() {
-  save("fetch.briefsCache", S.briefs);
+/** Update the count in the nav, and (unless `persist` is false) keep the list for the next visit.
+ *  The cache is keyed by table, holds no attachment links, and goes when the session ends. */
+function cacheBriefs(persist = true) {
+  const key = cacheKey();
+  if (persist && key && S.briefs && auth.currentToken()) save(key, { v: 2, at: S.briefsAt || Date.now(), rows: S.briefs });
   const count = $("#briefCount");   // open briefs only; done ones sit in their own section
   const open = (S.briefs || []).filter((b) => !b.done).length;
   count.hidden = !open;
   count.textContent = open || "";
 }
+
+/** The settings screen shows what's loading; tell it when that changes. */
+const repaintSettings = () => { if (S.view === "settings") settingsView.paint(); };
 
 function loadBriefs() {
   if (S.briefsLoading) return S.briefsLoading;
@@ -1066,26 +1204,31 @@ function loadBriefs() {
   const first = !S.briefs;
   const say = (text) => status.replaceChildren(h("span", { class: "spinner", "aria-hidden": "true" }), h("span", {}, text));
   status.className = "list-status";
-  say(first ? "Loading briefs from Lark…" : "Refreshing…");
+  say(first ? "Reading the briefs…" : "Refreshing…");
   $("#refreshBtn").classList.add("is-busy");
   if (first) renderSkeletons();
   const slow = setTimeout(() => {
-    say("Waking up the Lark connection - the first load after a quiet spell can take up to a minute…");
-  }, 5000);
-  S.briefsLoading = lark.listAll()
+    if (larkService.status.state === "waking") say("Waking up the connection… It sleeps when nobody's using it. This can take up to a minute.");
+  }, 1200);
+  S.briefsLoading = (async () => {
+    // Wake the proxy first (a sleeping one answers 502), then read every brief.
+    if (!await larkService.wake()) throw new LarkError("connection service unreachable", { network: true });
+    return lark.listAll((n, total) => say(`Reading the briefs… ${n.toLocaleString()}${total ? ` of ${total.toLocaleString()}` : ""}`));
+  })()
     .then((list) => {
       S.briefs = list.reverse();   // Lark returns oldest first
       S.briefsAt = Date.now();
       cacheBriefs();
+      updateWriteNote();
       status.replaceChildren();
       if (S.view === "result" && S.doc?.mode === "record") refreshResult();
       if (S.view === "briefs") renderBriefs();
       return list;
     })
     .catch((err) => {
-      S.larkError = err.message;
+      S.larkError = describe(err);
       status.className = "list-status is-error";
-      status.replaceChildren(ic("alert"), h("span", {}, `${err.message} `,
+      status.replaceChildren(ic("alert"), h("span", {}, `${S.larkError} `,
         h("button", { type: "button", class: "linkish", onclick: () => loadBriefs() }, "Try again")));
       if (S.view === "briefs" && first) renderBriefs();
       throw err;
@@ -1094,9 +1237,9 @@ function loadBriefs() {
       clearTimeout(slow);
       $("#refreshBtn").classList.remove("is-busy");
       S.briefsLoading = null;
-      emitStatus();
+      repaintSettings();
     });
-  emitStatus();
+  repaintSettings();
   S.briefsLoading.catch(() => {});
   return S.briefsLoading;
 }
@@ -1142,7 +1285,7 @@ function briefCard(b, i) {
     h("div", { class: "rcard-foot" }, `Filed ${B.fmtDate(m.date_filed)}${b.filedBy ? ` · ${b.filedBy}` : ""}`
       + ((b.attachments || []).length ? ` · ${b.attachments.length} file${b.attachments.length === 1 ? "" : "s"}` : ""),
       S.edits[b.id] ? h("span", { class: "unsaved" }, "• unsaved edits") : null));
-  return h("div", { class: "rcard-wrap", "data-id": b.id }, card,
+  return h("div", { class: `rcard-wrap${S.working.has(b.id) ? " is-working" : ""}`, "data-id": b.id }, card,
     h("button", { type: "button", class: "more-btn", "aria-label": `More actions for ${m.project_title}`, "aria-haspopup": "menu",
       "aria-expanded": "false", title: "More actions" }, ic("dots")));
 }
@@ -1198,20 +1341,35 @@ const menuFor = (b) => [
   { label: "Delete…", icon: "trash", danger: true, onSelect: () => removeBrief(b) },
 ];
 
+/** A single-cell flag, so it changes at once: the card is dimmed (`working`) while Lark answers,
+ *  rolled back with the reason if Lark refuses, and Undo stays for 8 s. */
 async function toggleDone(b, done = !b.done) {
-  b.done = done;   // update the list right away; undo if Lark refuses
+  if (S.working.has(b.id)) return;
+  if (writeProblem()) return toast(writeProblem(), { type: "error" });
+  if (!auth.ensureTime(60 * 1000)) return;
+  S.working.add(b.id);
+  b.done = done;
   cacheBriefs();
   renderBriefs();
   try {
-    await lark.setDone(b.id, done);
-    toast(done ? `“${b.model.project_title}” moved to Done.` : `“${b.model.project_title}” is back in the list.`, {
-      type: "success", action: "Undo", onAction: () => toggleDone(b, !done),
-    });
+    const res = await lark.setDone(b.id, done);
+    const note = readBackNote(res);
+    if (note.warn) {
+      toast(note.warn, { type: "warn", link: note.link });
+      loadBriefs().catch(() => {});   // show what Lark really holds
+    } else {
+      toast(done ? `“${b.model.project_title}” moved to Done.` : `“${b.model.project_title}” is back in the list.`, {
+        type: "success", action: "Undo", onAction: () => toggleDone(b, !done),
+      });
+    }
   } catch (err) {
     b.done = !done;
+    toast(sayWrite(err), { type: "error" });
+    if (isUncertain(err)) loadBriefs().catch(() => {});
+  } finally {
+    S.working.delete(b.id);
     cacheBriefs();
     renderBriefs();
-    toast(err.message || "Couldn't update Lark.", { type: "error" });
   }
 }
 
@@ -1235,13 +1393,18 @@ function wireCardMenu() {
 /** Permanent delete: two confirmations (ui.js confirmDanger). */
 async function removeBrief(b) {
   const m = b.model;
+  if (writeProblem()) return toast(writeProblem(), { type: "error" });
+  if (!auth.ensureTime(60 * 1000)) return;
   const ok = await confirmDanger({
     what: m.project_title,
     details: [["Project", m.project_title], ["Client", B.isMissing(m.client_name) ? "" : m.client_name],
       ["Filed", `${B.fmtDate(m.date_filed)}${b.filedBy ? ` by ${b.filedBy}` : ""}`]],
     consequence: "This removes the brief from the Lark Base for everyone, including its attachments, next steps and notes.",
     safer: "Mark it Done instead if you might need it again.",
-    run: () => lark.remove(b.id),
+    run: async () => {
+      if (auth.msLeft() < 60 * 1000) throw new Error("Your login is about to end, so this wasn't sent. Log in again, then try it.");
+      try { await lark.remove(b.id); } catch (err) { throw new Error(sayWrite(err, { deleting: true })); }
+    },
   });
   if (!ok) return;
   S.briefs = S.briefs.filter((x) => x.id !== b.id);
@@ -1272,7 +1435,7 @@ async function showRecord(id) {
       try {
         await loading;
       } catch (err) {
-        $("#paper").replaceChildren(h("div", { class: "paper-loading is-error" }, ic("alert"), err.message));
+        $("#paper").replaceChildren(h("div", { class: "paper-loading is-error" }, ic("alert"), describe(err)));
         return;
       }
       if (location.hash !== hash) return;
@@ -1291,6 +1454,8 @@ async function showRecord(id) {
     requirement: e ? e.requirement : b.requirement || "", vat: e ? e.vat : b.vat || "",
     savedNextSteps: b.nextSteps || [], savedAttachments: b.attachments || [],
     savedRequirement: b.requirement || "", savedVat: b.vat || "",
+    requirementRaw: b.requirementRaw || "", vatRaw: b.vatRaw || "",
+    sig: e?.sig || b.sig, newer: !!b.newer,   // what Lark held when this was opened (or when the edits began)
   });
 }
 
@@ -1302,62 +1467,75 @@ function wireBriefs() {
 }
 
 function applyLinks() {
-  $("#larkTableLink").href = cfg().LARK_TABLE_URL;
-  $("#openLarkLink").href = cfg().LARK_TABLE_URL;
+  const url = cfg().table ? cfg().table.url : "";
+  for (const id of ["#larkTableLink", "#openLarkLink"]) {
+    if (url) $(id).href = url; else $(id).removeAttribute("href");
+  }
 }
 
-// ---- Settings hooks ----------------------------------------------------------------
-function wireSettings() {
-  settingsView.mount({
-    larkStatus: () => (S.briefsLoading ? { state: "loading" }
-      : S.larkError ? { state: "error", error: S.larkError }
-        : S.briefsAt ? { state: "ok", count: S.briefs.length } : { state: "unknown" }),
-    reconnect({ tableChanged = false } = {}) {
-      applyLinks();
-      if (tableChanged) {
-        S.briefs = null;
-        S.edits = {};
-        cacheBriefs();
-      }
-      extract.warm.at = 0;   // force a fresh check of the extraction service
-      extract.ensureAwake();
-      S.briefsAt = 0;
-      if (auth.currentToken()) loadBriefs().catch(() => {});
-    },
-    login: (returnTo) => login(returnTo),
-    logout() {
-      // Logging out also forgets the cached list, so the next person on this
-      // computer can't see it. The unsaved draft is theirs to resume or discard.
-      S.briefs = null;
-      S.briefsAt = 0;
-      S.edits = {};
-      cacheBriefs();
-      sessionEnded("You've logged out of Fetch. You're still logged in to Lark itself.");
-      go("#/");
-    },
-    clearLocal() {   // one click; Undo in the toast puts the draft, the cached list and the estimate back
-      const kept = { draft: S.draft, files: S.draftFiles, briefs: S.briefs, at: S.briefsAt, edits: S.edits,
-        factor: recall("local", "fetch.etaFactor") };
-      setDraft(null);
-      S.draftFiles = [];
-      S.briefs = null;
-      S.briefsAt = 0;
-      S.edits = {};
-      cacheBriefs();
-      extract.resetEstimate();
-      toast("Cleared this browser's draft and cached list.", { type: "success", action: "Undo", onAction: () => {
-        if (!S.draft && kept.draft) { setDraft(kept.draft); S.draftFiles = kept.files; }
-        S.edits = { ...kept.edits, ...S.edits };
-        if (kept.factor != null && recall("local", "fetch.etaFactor") == null) store("local", "fetch.etaFactor", kept.factor);
-        if (!S.briefs && kept.briefs) { S.briefs = kept.briefs; S.briefsAt = kept.at; cacheBriefs(); }
-        if (S.view === "compose") showCompose();
-        if (S.view === "briefs") renderBriefs();
-        emitStatus();
-      } });
-      if (auth.currentToken()) loadBriefs().catch(() => {});
-    },
-  });
+// ---- in-progress edits survive a trip to Lark's login page ---------------------------
+/** Edits live in memory; before the browser leaves for Lark they go to sessionStorage (this tab
+ *  only). Files still waiting to upload can't be kept: a new login needs them added again. */
+function persistEdits() {
+  const out = {};
+  for (const [id, e] of Object.entries(S.edits)) out[id] = { ...e, attachments: (e.attachments || []).filter((a) => a.token) };
+  store("session", KEYS.edits, Object.keys(out).length ? out : undefined);
 }
+function restoreEdits() {
+  const saved = recall("session", KEYS.edits);
+  store("session", KEYS.edits, undefined);
+  if (saved && typeof saved === "object") S.edits = { ...saved, ...S.edits };
+}
+
+// ---- Settings ----------------------------------------------------------------------
+const settingsView = createSettingsView({
+  larkStatus: () => (S.briefsLoading ? { state: "loading" }
+    : S.larkError ? { state: "error", error: S.larkError }
+      : S.briefsAt ? { state: "ok", count: S.briefs.length } : { state: "unknown" }),
+  schemaProblems,
+  reconnect({ tableChanged = false } = {}) {
+    applyLinks();
+    if (tableChanged) {
+      S.briefs = null;
+      S.edits = {};
+      cacheBriefs(false);
+    }
+    [larkService, geminiService].forEach((s) => s.wake({ force: true }));   // fresh checks of both services
+    S.briefsAt = 0;
+    if (auth.currentToken()) loadBriefs().catch(() => {});
+  },
+  login: (returnTo) => login(returnTo),
+  logout() {
+    // Logging out also forgets the cached list (sessionEnded drops it), so the next person on this
+    // computer can't see it. The unsaved draft is theirs to resume or discard.
+    S.edits = {};
+    store("session", KEYS.edits, undefined);
+    auth.logout("You've logged out of Fetch. You're still logged in to Lark itself.");
+    go("#/");
+  },
+  clearLocal() {   // one click; Undo in the toast puts the draft, the cached list and the estimate back
+    const kept = { draft: S.draft, files: S.draftFiles, briefs: S.briefs, at: S.briefsAt, edits: S.edits,
+      factor: recall("local", KEYS.eta) };
+    setDraft(null);
+    S.draftFiles = [];
+    S.briefs = null;
+    S.briefsAt = 0;
+    S.edits = {};
+    dropCache();
+    cacheBriefs(false);
+    extract.resetEstimate();
+    toast("Cleared this browser's draft and cached list.", { type: "success", action: "Undo", onAction: () => {
+      if (!S.draft && kept.draft) { setDraft(kept.draft); S.draftFiles = kept.files; }
+      S.edits = { ...kept.edits, ...S.edits };
+      if (kept.factor != null && recall("local", KEYS.eta) == null) store("local", KEYS.eta, kept.factor);
+      if (!S.briefs && kept.briefs) { S.briefs = kept.briefs; S.briefsAt = kept.at; cacheBriefs(); }
+      if (S.view === "compose") showCompose();
+      if (S.view === "briefs") renderBriefs();
+      repaintSettings();
+    } });
+    if (auth.currentToken()) loadBriefs().catch(() => {});
+  },
+});
 
 // ---- boot -------------------------------------------------------------------
 /** Back from Lark's login page (?code=…&state=… or ?error=…)? Finish the login. */
@@ -1365,9 +1543,11 @@ async function finishLoginIfReturning() {
   const params = new URLSearchParams(location.search);
   if (!params.has("code") && !params.has("error")) return;
   showView("busy");
-  const res = await auth.finishLogin(params);
-  // Drop ?code from the address bar (and history) at once.
-  history.replaceState(null, "", location.pathname + (res.returnTo || location.hash || "#/"));
+  const off = larkService.on((s) => {   // the proxy may have gone to sleep while the person was on Lark's page
+    if (s.state === "waking") $("#busyText").textContent = "Waking up the connection… This can take up to a minute.";
+  });
+  const res = await auth.handleRedirect();   // also takes ?code out of the address bar, before anything is awaited
+  off();
   loginState.note = res.ok ? "" : res.message;
 }
 
@@ -1382,26 +1562,24 @@ async function init() {
   wireBriefs();
   wireCardMenu();
   $("#reloadBtn").onclick = () => location.reload();
+  restoreEdits();
   cacheBriefs();
 
-  wireSettings();
+  settingsView.mount();
   $("#loginBtn").onclick = () => login();
-  document.addEventListener(auth.AUTH_ENDED, (e) => sessionEnded(e.detail?.message));
-  setInterval(tickSession, 20000);
-  document.addEventListener("visibilitychange", () => document.visibilityState === "visible" && tickSession());
-  document.addEventListener(extract.STATUS_EVENT, updateSetupNote);
-  document.addEventListener(extract.STATUS_EVENT, () => {
-    $("#blockNote").hidden = !extract.warm.blocked;
-    try { $("#blockHost").textContent = new URL(cfg().GEMINI_PROXY_URL).host; } catch (_) { /* unset */ }
-  });
-  document.addEventListener(SETTINGS_EVENT, updateSetupNote);
+  auth.onEnded(sessionEnded);
+  auth.onBeforeLogin(persistEdits);
+  auth.startClock(() => { renderHeader(); settingsView.tick(); });
+  geminiService.on(updateSetupNote);
+  onAnyService(updateBlockNote);
+  settings.on(() => { renderHeader(); updateSetupNote(); });
 
-  // Wake both Render services and load the briefs list right away, so the
-  // service is ready and "All briefs" is populated before the user needs them.
-  extract.ensureAwake();   // keeps retrying for ~3 min while a free instance boots
-  lark.warmup();
-  document.addEventListener("visibilitychange", () => {   // back after a while: it may have gone to sleep
-    if (document.visibilityState === "visible" && !extract.isFresh()) extract.ensureAwake();
+  // Wake both Render services right away (also on the login screen), so they are ready before
+  // they're needed. Each keeps trying for ~3 min while a free instance boots.
+  geminiService.wake();
+  larkService.wake();
+  document.addEventListener("visibilitychange", () => {   // back after a while: they may have gone to sleep
+    if (document.visibilityState === "visible") [larkService, geminiService].forEach((s) => s.isFresh() || s.wake());
   });
   updateSetupNote();
   document.documentElement.dataset.booted = "";   // wired up: the boot watchdog in index.html stands down
@@ -1416,8 +1594,11 @@ async function init() {
   }
 
   window.addEventListener("hashchange", route);
-  window.addEventListener("beforeunload", (e) => {
-    if (S.job || Object.keys(S.edits).length) { e.preventDefault(); e.returnValue = ""; }
+  window.addEventListener("beforeunload", (e) => {   // a long task or a write is in flight, or there are unsaved edits
+    if (S.job || S.working.size || Object.keys(S.edits).length || $("#saveConfirm").classList.contains("is-busy")) {
+      e.preventDefault();
+      e.returnValue = "";
+    }
   });
   window.addEventListener("resize", () => S.view === "compose" && autosize());
   route();

@@ -1,0 +1,7 @@
+# Credentials for the admin scripts (tools/setup_lark_table.py, tests/check-live.mjs, tests/e2e.mjs).
+# Never commit: it holds the Lark app secret.
+.env
+
+node_modules/
+__pycache__/
+*.pyc

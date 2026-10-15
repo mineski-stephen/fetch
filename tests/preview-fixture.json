@@ -1,0 +1,964 @@
+{
+ "note": "Synthetic sample data for ?preview. Made by tests/make-preview-fixture.mjs. No real data.",
+ "fields": [
+  {
+   "field_id": "fld0",
+   "field_name": "Project Title",
+   "type": 1,
+   "is_primary": true,
+   "property": null
+  },
+  {
+   "field_id": "fld1",
+   "field_name": "Client",
+   "type": 1,
+   "is_primary": false,
+   "property": null
+  },
+  {
+   "field_id": "fld2",
+   "field_name": "Date Filed",
+   "type": 5,
+   "is_primary": false,
+   "property": null
+  },
+  {
+   "field_id": "fld3",
+   "field_name": "Due Date",
+   "type": 5,
+   "is_primary": false,
+   "property": null
+  },
+  {
+   "field_id": "fld4",
+   "field_name": "Status",
+   "type": 3,
+   "is_primary": false,
+   "property": {
+    "options": [
+     {
+      "id": "opt4_0",
+      "name": "New",
+      "color": 0
+     },
+     {
+      "id": "opt4_1",
+      "name": "In Progress",
+      "color": 1
+     },
+     {
+      "id": "opt4_2",
+      "name": "Submitted",
+      "color": 2
+     },
+     {
+      "id": "opt4_3",
+      "name": "Won",
+      "color": 3
+     },
+     {
+      "id": "opt4_4",
+      "name": "Lost",
+      "color": 4
+     },
+     {
+      "id": "opt4_5",
+      "name": "Declined",
+      "color": 5
+     }
+    ]
+   }
+  },
+  {
+   "field_id": "fld5",
+   "field_name": "Event Date / Period",
+   "type": 1,
+   "is_primary": false,
+   "property": null
+  },
+  {
+   "field_id": "fld6",
+   "field_name": "Venue",
+   "type": 1,
+   "is_primary": false,
+   "property": null
+  },
+  {
+   "field_id": "fld7",
+   "field_name": "Objective",
+   "type": 1,
+   "is_primary": false,
+   "property": null
+  },
+  {
+   "field_id": "fld8",
+   "field_name": "Target Audience",
+   "type": 1,
+   "is_primary": false,
+   "property": null
+  },
+  {
+   "field_id": "fld9",
+   "field_name": "KPIs",
+   "type": 1,
+   "is_primary": false,
+   "property": null
+  },
+  {
+   "field_id": "fld10",
+   "field_name": "Scope of Work",
+   "type": 1,
+   "is_primary": false,
+   "property": null
+  },
+  {
+   "field_id": "fld11",
+   "field_name": "Estimated Budget",
+   "type": 1,
+   "is_primary": false,
+   "property": null
+  },
+  {
+   "field_id": "fld12",
+   "field_name": "Budget Type",
+   "type": 3,
+   "is_primary": false,
+   "property": {
+    "options": [
+     {
+      "id": "opt12_0",
+      "name": "All-in",
+      "color": 0
+     },
+     {
+      "id": "opt12_1",
+      "name": "Baseline / Ballpark",
+      "color": 1
+     },
+     {
+      "id": "opt12_2",
+      "name": "To be confirmed",
+      "color": 2
+     },
+     {
+      "id": "opt12_3",
+      "name": "Not specified",
+      "color": 3
+     }
+    ]
+   }
+  },
+  {
+   "field_id": "fld13",
+   "field_name": "Proposal Submission",
+   "type": 3,
+   "is_primary": false,
+   "property": {
+    "options": [
+     {
+      "id": "opt13_0",
+      "name": "Paper pass only",
+      "color": 0
+     },
+     {
+      "id": "opt13_1",
+      "name": "Pitch / Presentation",
+      "color": 1
+     },
+     {
+      "id": "opt13_2",
+      "name": "Not specified",
+      "color": 2
+     }
+    ]
+   }
+  },
+  {
+   "field_id": "fld14",
+   "field_name": "Submission Details",
+   "type": 1,
+   "is_primary": false,
+   "property": null
+  },
+  {
+   "field_id": "fld15",
+   "field_name": "Notes",
+   "type": 1,
+   "is_primary": false,
+   "property": null
+  },
+  {
+   "field_id": "fld16",
+   "field_name": "Questions for Client",
+   "type": 1,
+   "is_primary": false,
+   "property": null
+  },
+  {
+   "field_id": "fld17",
+   "field_name": "Summary",
+   "type": 1,
+   "is_primary": false,
+   "property": null
+  },
+  {
+   "field_id": "fld18",
+   "field_name": "Filed By",
+   "type": 1,
+   "is_primary": false,
+   "property": null
+  },
+  {
+   "field_id": "fld19",
+   "field_name": "Source Files",
+   "type": 1,
+   "is_primary": false,
+   "property": null
+  },
+  {
+   "field_id": "fld20",
+   "field_name": "Brief JSON",
+   "type": 1,
+   "is_primary": false,
+   "property": null
+  },
+  {
+   "field_id": "fld21",
+   "field_name": "Next Steps",
+   "type": 4,
+   "is_primary": false,
+   "property": {
+    "options": [
+     {
+      "id": "opt21_0",
+      "name": "AM Assignment",
+      "color": 0
+     },
+     {
+      "id": "opt21_1",
+      "name": "File Project Brief and trigger Lark GC",
+      "color": 1
+     },
+     {
+      "id": "opt21_2",
+      "name": "PM Assignment",
+      "color": 2
+     },
+     {
+      "id": "opt21_3",
+      "name": "Pitch Deck",
+      "color": 3
+     },
+     {
+      "id": "opt21_4",
+      "name": "Other",
+      "color": 4
+     }
+    ]
+   }
+  },
+  {
+   "field_id": "fld22",
+   "field_name": "Attachments",
+   "type": 17,
+   "is_primary": false,
+   "property": null
+  },
+  {
+   "field_id": "fld23",
+   "field_name": "Requirement Type",
+   "type": 3,
+   "is_primary": false,
+   "property": {
+    "options": [
+     {
+      "id": "opt23_0",
+      "name": "RFP (Request for Proposal)",
+      "color": 0
+     },
+     {
+      "id": "opt23_1",
+      "name": "RFQ (Request for Quotation)",
+      "color": 1
+     },
+     {
+      "id": "opt23_2",
+      "name": "RFI (Request for Information)",
+      "color": 2
+     }
+    ]
+   }
+  },
+  {
+   "field_id": "fld24",
+   "field_name": "VAT",
+   "type": 4,
+   "is_primary": false,
+   "property": {
+    "options": [
+     {
+      "id": "opt24_0",
+      "name": "VAT Inc.",
+      "color": 0
+     },
+     {
+      "id": "opt24_1",
+      "name": "VAT Ex.",
+      "color": 1
+     }
+    ]
+   }
+  },
+  {
+   "field_id": "fld25",
+   "field_name": "Done",
+   "type": 3,
+   "is_primary": false,
+   "property": {
+    "options": [
+     {
+      "id": "opt25_0",
+      "name": "Yes",
+      "color": 0
+     },
+     {
+      "id": "opt25_1",
+      "name": "No",
+      "color": 1
+     }
+    ]
+   }
+  },
+  {
+   "field_id": "fld26",
+   "field_name": "Last Modified",
+   "type": 1002,
+   "is_primary": false,
+   "property": null
+  }
+ ],
+ "records": [
+  {
+   "record_id": "recSample1",
+   "fields": {
+    "Project Title": [
+     {
+      "type": "text",
+      "text": "Summer Splash Roadshow"
+     }
+    ],
+    "Client": [
+     {
+      "type": "text",
+      "text": "Acme Soda Co."
+     }
+    ],
+    "Date Filed": 1767196800000,
+    "Event Date / Period": [
+     {
+      "type": "text",
+      "text": "Mar 14-16, 2027\n• 2027-03-01 - Venue walkthrough"
+     }
+    ],
+    "Venue": [
+     {
+      "type": "text",
+      "text": "Sample Mall Atrium"
+     }
+    ],
+    "Objective": [
+     {
+      "type": "text",
+      "text": "• Introduce the new citrus line\n• Sample 20,000 cups across three days"
+     }
+    ],
+    "Target Audience": [
+     {
+      "type": "text",
+      "text": "• Students and young professionals, 18-30"
+     }
+    ],
+    "KPIs": [
+     {
+      "type": "text",
+      "text": "• 20,000 samples\n• 5,000 social posts"
+     }
+    ],
+    "Scope of Work": [
+     {
+      "type": "text",
+      "text": "• Booth: Design, build and staff three booths\n• Content: Daily recap videos"
+     }
+    ],
+    "Estimated Budget": [
+     {
+      "type": "text",
+      "text": "PHP 1,800,000"
+     }
+    ],
+    "Budget Type": "All-in",
+    "Proposal Submission": "Pitch / Presentation",
+    "Submission Details": [
+     {
+      "type": "text",
+      "text": "Deck and budget by the due date"
+     }
+    ],
+    "Notes": [
+     {
+      "type": "text",
+      "text": "• Venue is not confirmed yet"
+     }
+    ],
+    "Summary": [
+     {
+      "type": "text",
+      "text": "A three-day sampling roadshow for a new soda flavour."
+     }
+    ],
+    "Brief JSON": [
+     {
+      "type": "text",
+      "text": "{\"schema_version\":1,\"date_filed\":\"2026-01-01\",\"due_date\":{\"date\":\"\",\"note\":\"5:00 PM via email\"},\"client_name\":\"Acme Soda Co.\",\"project_title\":\"Summer Splash Roadshow\",\"project_title_is_placeholder\":false,\"event_period\":\"Mar 14-16, 2027\",\"key_dates\":[{\"date\":\"2027-03-01\",\"label\":\"Venue walkthrough\"}],\"venue\":\"Sample Mall Atrium\",\"objectives\":[\"Introduce the new citrus line\",\"Sample 20,000 cups across three days\"],\"target_audience\":[\"Students and young professionals, 18-30\"],\"kpis\":[\"20,000 samples\",\"5,000 social posts\"],\"scope_of_work\":[{\"item\":\"Booth\",\"detail\":\"Design, build and staff three booths\"},{\"item\":\"Content\",\"detail\":\"Daily recap videos\"}],\"budget\":{\"amount\":\"PHP 1,800,000\",\"type\":\"ALL-IN\"},\"proposal_submission\":{\"type\":\"PITCH / PRESENTATION\",\"details\":\"Deck and budget by the due date\"},\"requirement\":{\"type\":\"RFP\",\"reason\":\"The brief asks for a proposal and a budget.\"},\"vat\":{\"applies\":\"NO\",\"reason\":\"Prices are exclusive of VAT.\"},\"notes\":[\"Venue is not confirmed yet\"],\"clarifications\":[],\"show_clarifications\":false,\"summary\":\"A three-day sampling roadshow for a new soda flavour.\",\"extraction_warnings\":[]}"
+     }
+    ],
+    "Next Steps": [
+     "AM Assignment"
+    ],
+    "Requirement Type": "RFP (Request for Proposal)",
+    "VAT": [
+     "VAT Ex."
+    ],
+    "Filed By": [
+     {
+      "type": "text",
+      "text": "Sample Person"
+     }
+    ],
+    "Source Files": [
+     {
+      "type": "text",
+      "text": "sample-brief.pdf"
+     }
+    ],
+    "Status": "New",
+    "Done": "No",
+    "Last Modified": 1790000000000
+   },
+   "dueInDays": 3,
+   "filedDaysAgo": 2
+  },
+  {
+   "record_id": "recSample2",
+   "fields": {
+    "Project Title": [
+     {
+      "type": "text",
+      "text": "Branch Anniversary Gala"
+     }
+    ],
+    "Client": [
+     {
+      "type": "text",
+      "text": "Northwind Bank"
+     }
+    ],
+    "Date Filed": 1767196800000,
+    "Event Date / Period": [
+     {
+      "type": "text",
+      "text": "Jun 20, 2027"
+     }
+    ],
+    "Venue": [
+     {
+      "type": "text",
+      "text": "Sample Grand Ballroom"
+     }
+    ],
+    "Objective": [
+     {
+      "type": "text",
+      "text": "• Thank long-time clients"
+     }
+    ],
+    "KPIs": [
+     {
+      "type": "text",
+      "text": "• 300 guests"
+     }
+    ],
+    "Scope of Work": [
+     {
+      "type": "text",
+      "text": "• Full event production"
+     }
+    ],
+    "Estimated Budget": [
+     {
+      "type": "text",
+      "text": "To be confirmed"
+     }
+    ],
+    "Budget Type": "To be confirmed",
+    "Proposal Submission": "Paper pass only",
+    "Submission Details": [
+     {
+      "type": "text",
+      "text": "Quotation only"
+     }
+    ],
+    "Summary": [
+     {
+      "type": "text",
+      "text": "An anniversary dinner for 300 guests."
+     }
+    ],
+    "Brief JSON": [
+     {
+      "type": "text",
+      "text": "{\"schema_version\":1,\"date_filed\":\"2026-01-01\",\"due_date\":{\"date\":\"\",\"note\":\"Not specified\"},\"client_name\":\"Northwind Bank\",\"project_title\":\"Branch Anniversary Gala\",\"project_title_is_placeholder\":false,\"event_period\":\"Jun 20, 2027\",\"key_dates\":[],\"venue\":\"Sample Grand Ballroom\",\"objectives\":[\"Thank long-time clients\"],\"target_audience\":[],\"kpis\":[\"300 guests\"],\"scope_of_work\":[{\"item\":\"\",\"detail\":\"Full event production\"}],\"budget\":{\"amount\":\"To be confirmed\",\"type\":\"TO BE CONFIRMED\"},\"proposal_submission\":{\"type\":\"PAPER PASS ONLY\",\"details\":\"Quotation only\"},\"requirement\":{\"type\":\"RFQ\",\"reason\":\"Only a quotation is asked for.\"},\"vat\":{\"applies\":\"YES\",\"reason\":\"Prices are inclusive of VAT.\"},\"notes\":[],\"clarifications\":[],\"show_clarifications\":false,\"summary\":\"An anniversary dinner for 300 guests.\",\"extraction_warnings\":[]}"
+     }
+    ],
+    "Next Steps": [
+     "PM Assignment",
+     "Pitch Deck"
+    ],
+    "Requirement Type": "RFQ (Request for Quotation)",
+    "VAT": [
+     "VAT Inc."
+    ],
+    "Filed By": [
+     {
+      "type": "text",
+      "text": "Sample Person"
+     }
+    ],
+    "Source Files": [
+     {
+      "type": "text",
+      "text": "sample-brief.pdf"
+     }
+    ],
+    "Status": "In Progress",
+    "Done": "No",
+    "Last Modified": 1790000000000
+   },
+   "dueInDays": 12,
+   "filedDaysAgo": 6
+  },
+  {
+   "record_id": "recSample3",
+   "fields": {
+    "Project Title": [
+     {
+      "type": "text",
+      "text": "Esports Campus Cup"
+     }
+    ],
+    "Client": [
+     {
+      "type": "text",
+      "text": "Contoso Telecom"
+     }
+    ],
+    "Date Filed": 1767196800000,
+    "Event Date / Period": [
+     {
+      "type": "text",
+      "text": "Nov 2026"
+     }
+    ],
+    "Venue": [
+     {
+      "type": "text",
+      "text": "Various campuses"
+     }
+    ],
+    "Objective": [
+     {
+      "type": "text",
+      "text": "• Grow the student base"
+     }
+    ],
+    "Estimated Budget": [
+     {
+      "type": "text",
+      "text": "PHP 3,500,000"
+     }
+    ],
+    "Budget Type": "Baseline / Ballpark",
+    "Proposal Submission": "Pitch / Presentation",
+    "Submission Details": [
+     {
+      "type": "text",
+      "text": "Pitch on the due date"
+     }
+    ],
+    "Summary": [
+     {
+      "type": "text",
+      "text": "A campus esports league."
+     }
+    ],
+    "Brief JSON": [
+     {
+      "type": "text",
+      "text": "{\"schema_version\":1,\"date_filed\":\"2026-01-01\",\"due_date\":{\"date\":\"\",\"note\":\"Not specified\"},\"client_name\":\"Contoso Telecom\",\"project_title\":\"Esports Campus Cup\",\"project_title_is_placeholder\":false,\"event_period\":\"Nov 2026\",\"key_dates\":[],\"venue\":\"Various campuses\",\"objectives\":[\"Grow the student base\"],\"target_audience\":[],\"kpis\":[],\"scope_of_work\":[],\"budget\":{\"amount\":\"PHP 3,500,000\",\"type\":\"BASELINE / BALLPARK\"},\"proposal_submission\":{\"type\":\"PITCH / PRESENTATION\",\"details\":\"Pitch on the due date\"},\"requirement\":{\"type\":\"\",\"reason\":\"\"},\"vat\":{\"applies\":\"\",\"reason\":\"\"},\"notes\":[],\"clarifications\":[],\"show_clarifications\":false,\"summary\":\"A campus esports league.\",\"extraction_warnings\":[]}"
+     }
+    ],
+    "Filed By": [
+     {
+      "type": "text",
+      "text": "Another Sample"
+     }
+    ],
+    "Source Files": [
+     {
+      "type": "text",
+      "text": "sample-brief.pdf"
+     }
+    ],
+    "Status": "Submitted",
+    "Done": "No",
+    "Last Modified": 1790000000000
+   },
+   "dueInDays": -2,
+   "filedDaysAgo": 20
+  },
+  {
+   "record_id": "recSample4",
+   "fields": {
+    "Project Title": [
+     {
+      "type": "text",
+      "text": "Holiday Pop-up Market"
+     }
+    ],
+    "Client": [
+     {
+      "type": "text",
+      "text": "Fabrikam Foods"
+     }
+    ],
+    "Date Filed": 1767196800000,
+    "Event Date / Period": [
+     {
+      "type": "text",
+      "text": "Dec 2026"
+     }
+    ],
+    "Venue": [
+     {
+      "type": "text",
+      "text": "Sample Plaza"
+     }
+    ],
+    "Objective": [
+     {
+      "type": "text",
+      "text": "• Seasonal sales"
+     }
+    ],
+    "Estimated Budget": [
+     {
+      "type": "text",
+      "text": "PHP 900,000"
+     }
+    ],
+    "Budget Type": "All-in",
+    "Summary": [
+     {
+      "type": "text",
+      "text": "A holiday pop-up market."
+     }
+    ],
+    "Brief JSON": [
+     {
+      "type": "text",
+      "text": "{\"schema_version\":1,\"date_filed\":\"2026-01-01\",\"due_date\":{\"date\":\"\",\"note\":\"Not specified\"},\"client_name\":\"Fabrikam Foods\",\"project_title\":\"Holiday Pop-up Market\",\"project_title_is_placeholder\":false,\"event_period\":\"Dec 2026\",\"key_dates\":[],\"venue\":\"Sample Plaza\",\"objectives\":[\"Seasonal sales\"],\"target_audience\":[],\"kpis\":[],\"scope_of_work\":[],\"budget\":{\"amount\":\"PHP 900,000\",\"type\":\"ALL-IN\"},\"proposal_submission\":{\"type\":\"NOT SPECIFIED\",\"details\":\"Not specified\"},\"requirement\":{\"type\":\"\",\"reason\":\"\"},\"vat\":{\"applies\":\"\",\"reason\":\"\"},\"notes\":[],\"clarifications\":[],\"show_clarifications\":false,\"summary\":\"A holiday pop-up market.\",\"extraction_warnings\":[]}"
+     }
+    ],
+    "Next Steps": [
+     "File Project Brief and trigger Lark GC"
+    ],
+    "Requirement Type": "RFP (Request for Proposal)",
+    "VAT": [
+     "VAT Ex."
+    ],
+    "Attachments": [
+     {
+      "file_token": "previewfile30",
+      "name": "previewfile30.pdf",
+      "size": 1000,
+      "url": "https://expires.example/x"
+     },
+     {
+      "file_token": "previewfile31",
+      "name": "previewfile31.pdf",
+      "size": 1000,
+      "url": "https://expires.example/x"
+     }
+    ],
+    "Filed By": [
+     {
+      "type": "text",
+      "text": "Sample Person"
+     }
+    ],
+    "Source Files": [
+     {
+      "type": "text",
+      "text": "sample-brief.pdf"
+     }
+    ],
+    "Status": "Won",
+    "Done": "Yes",
+    "Last Modified": 1790000000000
+   },
+   "dueInDays": null,
+   "filedDaysAgo": 45
+  },
+  {
+   "record_id": "recSample5",
+   "fields": {
+    "Project Title": [
+     {
+      "type": "text",
+      "text": "Toy Fair Booth"
+     }
+    ],
+    "Client": [
+     {
+      "type": "text",
+      "text": "Tailspin Toys"
+     }
+    ],
+    "Date Filed": 1767196800000,
+    "Event Date / Period": [
+     {
+      "type": "text",
+      "text": "Sep 2027"
+     }
+    ],
+    "Venue": [
+     {
+      "type": "text",
+      "text": "Sample Convention Center"
+     }
+    ],
+    "Objective": [
+     {
+      "type": "text",
+      "text": "• Show the autumn range"
+     }
+    ],
+    "Summary": [
+     {
+      "type": "text",
+      "text": "A trade-fair booth. Its requirement type is one Fetch doesn't offer."
+     }
+    ],
+    "Brief JSON": [
+     {
+      "type": "text",
+      "text": "{\"schema_version\":1,\"date_filed\":\"2026-01-01\",\"due_date\":{\"date\":\"\",\"note\":\"Not specified\"},\"client_name\":\"Tailspin Toys\",\"project_title\":\"Toy Fair Booth\",\"project_title_is_placeholder\":false,\"event_period\":\"Sep 2027\",\"key_dates\":[],\"venue\":\"Sample Convention Center\",\"objectives\":[\"Show the autumn range\"],\"target_audience\":[],\"kpis\":[],\"scope_of_work\":[],\"budget\":{\"amount\":\"Not specified\",\"type\":\"NOT SPECIFIED\"},\"proposal_submission\":{\"type\":\"NOT SPECIFIED\",\"details\":\"Not specified\"},\"requirement\":{\"type\":\"\",\"reason\":\"\"},\"vat\":{\"applies\":\"\",\"reason\":\"\"},\"notes\":[],\"clarifications\":[],\"show_clarifications\":false,\"summary\":\"A trade-fair booth. Its requirement type is one Fetch doesn't offer.\",\"extraction_warnings\":[]}"
+     }
+    ],
+    "Filed By": [
+     {
+      "type": "text",
+      "text": "Another Sample"
+     }
+    ],
+    "Source Files": [
+     {
+      "type": "text",
+      "text": "sample-brief.pdf"
+     }
+    ],
+    "Status": "New",
+    "Done": "No",
+    "Requirement Type": "RFX (Open Tender)",
+    "Last Modified": 1790000000000
+   },
+   "dueInDays": 30,
+   "filedDaysAgo": 1
+  },
+  {
+   "record_id": "recSample6",
+   "fields": {
+    "Project Title": [
+     {
+      "type": "text",
+      "text": "Trail Run Series"
+     }
+    ],
+    "Client": [
+     {
+      "type": "text",
+      "text": "Adventure Works"
+     }
+    ],
+    "Date Filed": 1767196800000,
+    "Event Date / Period": [
+     {
+      "type": "text",
+      "text": "Feb 2027"
+     }
+    ],
+    "Venue": [
+     {
+      "type": "text",
+      "text": "Sample Park"
+     }
+    ],
+    "Objective": [
+     {
+      "type": "text",
+      "text": "• Brand awareness"
+     }
+    ],
+    "Summary": [
+     {
+      "type": "text",
+      "text": "Three trail runs."
+     }
+    ],
+    "Brief JSON": [
+     {
+      "type": "text",
+      "text": "{\"schema_version\":1,\"date_filed\":\"2026-01-01\",\"due_date\":{\"date\":\"\",\"note\":\"Not specified\"},\"client_name\":\"Adventure Works\",\"project_title\":\"Trail Run Series\",\"project_title_is_placeholder\":false,\"event_period\":\"Feb 2027\",\"key_dates\":[],\"venue\":\"Sample Park\",\"objectives\":[\"Brand awareness\"],\"target_audience\":[],\"kpis\":[],\"scope_of_work\":[],\"budget\":{\"amount\":\"Not specified\",\"type\":\"NOT SPECIFIED\"},\"proposal_submission\":{\"type\":\"NOT SPECIFIED\",\"details\":\"Not specified\"},\"requirement\":{\"type\":\"\",\"reason\":\"\"},\"vat\":{\"applies\":\"\",\"reason\":\"\"},\"notes\":[],\"clarifications\":[],\"show_clarifications\":false,\"summary\":\"Three trail runs.\",\"extraction_warnings\":[]}"
+     }
+    ],
+    "Filed By": [
+     {
+      "type": "text",
+      "text": "Sample Person"
+     }
+    ],
+    "Source Files": [
+     {
+      "type": "text",
+      "text": "sample-brief.pdf"
+     }
+    ],
+    "Status": "Lost",
+    "Done": "Yes",
+    "Last Modified": 1790000000000
+   },
+   "dueInDays": 6,
+   "filedDaysAgo": 3
+  }
+ ],
+ "extract": {
+  "dueInDays": 14,
+  "brief": {
+   "schema_version": 1,
+   "date_filed": "2026-01-01",
+   "due_date": {
+    "date": "",
+    "note": "12:00 PM via email"
+   },
+   "client_name": "Globex Beverages",
+   "project_title": "Launch Party for Zest",
+   "event_period": "Aug 8, 2027, 7:00 PM",
+   "key_dates": [
+    {
+     "date": "2027-07-20",
+     "label": "Guest list due"
+    }
+   ],
+   "venue": "Sample Rooftop Bar",
+   "objectives": [
+    "Launch the new drink with press and creators",
+    "Create 200 pieces of social content"
+   ],
+   "target_audience": [
+    "Lifestyle press and creators",
+    "Young professionals, 22-35"
+   ],
+   "kpis": [
+    "150 guests",
+    "200 social posts",
+    "20 press mentions"
+   ],
+   "scope_of_work": [
+    {
+     "item": "Venue",
+     "detail": "Sourcing and styling"
+    },
+    {
+     "item": "Program",
+     "detail": "Host, DJ and a short product reveal"
+    }
+   ],
+   "budget": {
+    "amount": "PHP 1,200,000",
+    "type": "ALL-IN"
+   },
+   "proposal_submission": {
+    "type": "PITCH / PRESENTATION",
+    "details": "Short deck with a budget"
+   },
+   "requirement": {
+    "type": "RFP",
+    "reason": "The brief asks for a creative proposal and a budget."
+   },
+   "vat": {
+    "applies": "NO",
+    "reason": "Budget is stated exclusive of VAT."
+   },
+   "notes": [
+    "The client will confirm the date next week"
+   ],
+   "clarifications": [
+    "Is the rooftop venue already booked?"
+   ],
+   "show_clarifications": false,
+   "summary": "A launch party for a new drink, with press, creators and social content.",
+   "extraction_warnings": []
+  },
+  "meta": {
+   "model": "gemini-sample",
+   "duration_ms": 6200,
+   "sources": [
+    {
+     "kind": "pdf",
+     "name": "sample-brief.pdf"
+    }
+   ],
+   "failed_attempts": []
+  }
+ },
+ "services": {
+  "gemini": {
+   "service": "gemini-brief-proxy",
+   "version": "1.5.0",
+   "api": 1,
+   "configured": true,
+   "endpoints": [
+    "GET /",
+    "GET /health",
+    "POST /extract"
+   ],
+   "cors": {
+    "origins": "*",
+    "allow_headers": [
+     "Authorization",
+     "X-Gemini-Api-Key",
+     "Content-Type"
+    ]
+   },
+   "limits": {
+    "max_upload_mb": 50,
+    "max_files": 10,
+    "rate_limit_per_hour": 60
+   },
+   "login": {
+    "provider": "lark",
+    "required": true
+   }
+  }
+ }
+}

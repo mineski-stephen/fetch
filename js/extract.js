@@ -1,97 +1,25 @@
 /*
- * Talking to the Gemini proxy (render/gemini-pdf): warm-up, file preparation,
- * wait-time estimate, and the upload itself (XHR, for real upload progress).
+ * Talking to the Gemini proxy (render/gemini-pdf): file preparation, wait-time estimate,
+ * and the upload itself (XHR, for real upload progress). Waking the service, its status
+ * and the compatibility check are in net.js (geminiService).
  */
 import { todayISO } from "./brief.js";
 import * as auth from "./auth.js";
-import { cfg, geminiKey } from "./settings.js";
+import { geminiService } from "./net.js";
+import { RULES } from "./config.js";
+import { geminiKey } from "./settings.js";
 import { store, recall } from "./ui.js";
-
-/** Fired whenever the service's state changes (Settings and the setup note listen). */
-export const STATUS_EVENT = "fetch:status";
 
 // Formats Gemini accepts as images; other images are converted in the browser.
 const NATIVE_IMAGES = new Set(["image/png", "image/jpeg", "image/webp", "image/heic", "image/heif"]);
 const MAX_IMAGE_SIDE = 3072;
 const MAX_IMAGE_BYTES = 7 * 1024 * 1024;
-const COLD_START_S = 50;          // a sleeping free Render instance takes ~20–60 s
-const FRESH_MS = 4 * 60 * 1000;   // after this long without contact, re-check before uploading
 
-// state: unset | unknown | waking | warm | down. `configured` = the service has a shared key.
-// `error` explains the last failed check (shown in Settings).
-// `blocked` = requests are being refused inside the browser (ad blocker / privacy extension).
-const warm = { state: "unknown", since: Date.now(), at: 0, configured: null, error: "", promise: null, loop: null,
-  blocked: false, fastFails: 0 };
-const emit = () => document.dispatchEvent(new Event(STATUS_EVENT));
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-/** One check of the service's root URL. (Not /health: uBlock Origin's filter lists block
- *  "||onrender.com/health" in browsers. Render's own health check still uses /health.)
- *  Anything but the service's JSON (e.g. Render's HTML
- *  "starting up" page or a 502 during a deploy) counts as "not ready yet". */
-function ping(timeoutMs) {
-  const started = Date.now();
-  const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), timeoutMs);
-  return fetch(`${cfg().GEMINI_PROXY_URL}/`, { cache: "no-store", signal: ctl.signal })
-    .then(async (r) => {
-      const type = r.headers.get("content-type") || "";
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      if (!type.includes("json")) throw new Error("the service is still starting");
-      const d = await r.json();
-      if (d.service !== "gemini-brief-proxy" && d.status !== "ok") throw new Error("unexpected response (wrong address?)");
-      Object.assign(warm, { state: "warm", configured: !!d.configured, at: Date.now(), error: "", blocked: false, fastFails: 0 });
-      return true;
-    })
-    .catch((e) => {
-      // A sleeping Render service holds the request open; a blocked one fails at once.
-      const instant = e instanceof TypeError && Date.now() - started < 1500 && navigator.onLine !== false;
-      warm.fastFails = instant ? warm.fastFails + 1 : 0;
-      warm.blocked = warm.fastFails >= 2;
-      warm.error = e.name === "AbortError" ? "no answer within 90 s"
-        : e instanceof TypeError ? "network error - address wrong, offline, or blocked" : e.message;
-      warm.state = "down";
-      return false;
-    })
-    .finally(() => { clearTimeout(timer); emit(); });
+/** Upload limits: what the service itself reports at GET /, else the config's fallback. */
+export function limits() {
+  const l = (geminiService.status.info || {}).limits || {};
+  return { maxUploadMb: Number(l.max_upload_mb) || RULES.maxUploadMb, maxFiles: Number(l.max_files) || RULES.maxFiles };
 }
-
-/** One wake attempt (shared by concurrent callers). Resolves true once awake. */
-function warmup(force = false) {
-  if (!cfg().GEMINI_PROXY_URL) { warm.state = "unset"; emit(); return Promise.resolve(false); }
-  if (warm.promise) return warm.promise;
-  if (!force && isFresh()) return Promise.resolve(true);
-  if (warm.state !== "waking") warm.since = Date.now();
-  warm.state = "waking";
-  emit();
-  warm.promise = ping(90000).finally(() => { warm.promise = null; });
-  return warm.promise;
-}
-
-const isFresh = () => warm.state === "warm" && Date.now() - warm.at < FRESH_MS;
-
-/** Keep trying to wake the service for up to `maxMs` (one shared loop at a time). */
-function ensureAwake(maxMs = 180000) {
-  if (isFresh()) return Promise.resolve(true);
-  if (warm.loop) return warm.loop;
-  warm.loop = (async () => {
-    const end = Date.now() + maxMs;
-    while (Date.now() < end) {
-      if (await warmup(true)) return true;
-      if (!cfg().GEMINI_PROXY_URL || warm.blocked) break;   // retrying won't get past a blocker
-      warm.state = "waking";   // a failed check while booting is normal; keep trying
-      emit();
-      await sleep(3000);
-    }
-    warm.state = "down";
-    emit();
-    return false;
-  })().finally(() => { warm.loop = null; });
-  return warm.loop;
-}
-
-/** Seconds left in a typical cold start, measured from when waking began. */
-const coldLeft = () => Math.max(0, Math.round(COLD_START_S - (Date.now() - warm.since) / 1000));
 
 // ---- file preparation ------------------------------------------------------
 function kindOf(file) {
@@ -194,13 +122,14 @@ function send(files, text, { onUploadProgress, onUploaded } = {}) {
   form.append("today", todayISO());
 
   const xhr = new XMLHttpRequest();
+  const started = performance.now();
   const promise = new Promise((resolve, reject) => {
     const login = auth.token();
     if (!login) {
-      auth.ended();
-      return reject(new ExtractError("Your Lark login has ended. Log in again, then extract the brief.", "login_expired", 401));
+      auth.end();
+      return reject(new ExtractError("Your login has ended. Log in again, then extract the brief.", "login_expired", 401));
     }
-    xhr.open("POST", `${cfg().GEMINI_PROXY_URL}/extract`);
+    xhr.open("POST", `${geminiService.url()}/extract`);
     xhr.setRequestHeader("Authorization", `Bearer ${login}`);   // the service checks this with Lark
     const key = geminiKey();
     if (key) xhr.setRequestHeader("X-Gemini-Api-Key", key);   // the user's own key, from Settings
@@ -209,19 +138,21 @@ function send(files, text, { onUploadProgress, onUploaded } = {}) {
     xhr.upload.onprogress = (e) => e.lengthComputable && onUploadProgress?.(e.loaded / e.total);
     xhr.upload.onload = () => onUploaded?.();
     xhr.onload = () => {
+      geminiService.worked();   // it answered, so it's awake
       const body = xhr.response || {};
-      if (xhr.status === 200 && body.brief) {
-        warm.state = "warm";
-        warm.at = Date.now();
-        return resolve(body);
-      }
+      if (xhr.status === 200 && body.brief) return resolve(body);
       const err = body.error || {};
-      if (["login_required", "login_expired", "login_invalid"].includes(err.code)) auth.ended(err.message);
-      reject(new ExtractError(err.message || `The extraction service returned an error (HTTP ${xhr.status}).`,
+      if (["login_required", "login_expired", "login_invalid"].includes(err.code)) auth.end(err.message);
+      reject(new ExtractError(err.message || `The extraction service answered with an error (HTTP ${xhr.status}). Try again in a moment.`,
         err.code || "http", xhr.status, Number(xhr.getResponseHeader("Retry-After")) || 0));
     };
-    xhr.onerror = () => reject(new ExtractError(
-      "Couldn't reach the extraction service. Check your connection, or try again in a minute if it was asleep.", "network", 0));
+    xhr.onerror = () => {
+      geminiService.threw(started);
+      reject(new ExtractError(geminiService.isBlocked()
+        ? `Your browser is blocking ${geminiService.host()}, probably an ad blocker or privacy extension. Allow that site, then reload.`
+        : `Fetch can't reach its extraction service (${geminiService.host()}). It may still be waking up; try again in a moment.`,
+        "network", 0));
+    };
     xhr.ontimeout = () => reject(new ExtractError("The extraction took too long. Try again, or split very large files.", "timeout", 0));
     xhr.onabort = () => reject(new ExtractError("Cancelled.", "aborted", 0));
     xhr.send(form);
@@ -229,4 +160,4 @@ function send(files, text, { onUploadProgress, onUploaded } = {}) {
   return { promise, abort: () => xhr.abort() };
 }
 
-export { warm, warmup, ensureAwake, isFresh, coldLeft, kindOf, prepare, estimate, calibrate, resetEstimate, send, ExtractError };
+export { kindOf, prepare, estimate, calibrate, resetEstimate, send, ExtractError };
