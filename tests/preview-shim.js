@@ -152,13 +152,29 @@
     set(150, function () { progress(0.3); });
     set(400, function () { progress(0.7); });
     set(700, function () { progress(1); if (xhr.upload.onload) xhr.upload.onload(); });
+    // Like the real service: one entry per uploaded file, and the text of plain-text files
+    // ("Check sources" shows it). The fixture's evidence quotes tests/preview-sample.pdf as source 1.
+    var files = body && body.getAll ? body.getAll("files") : [];
+    var kindOf = function (f) {
+      var n = (f.name || "").toLowerCase();
+      return /\.pdf$/.test(n) ? "pdf" : /^image\//.test(f.type) ? "image" : /\.(txt|md|csv)$/.test(n) ? "text" : "docx";
+    };
+    var texts = Promise.all(files.map(function (f) { return kindOf(f) === "text" ? f.text() : null; }));
     set(3200, function () {
-      fixture().then(function (f) {
+      Promise.all([fixture(), texts]).then(function (got) {
+        var f = got[0];
         var brief = JSON.parse(JSON.stringify(f.extract.brief));
         brief.date_filed = dayMs(0).iso;
         brief.due_date = { date: dayMs(f.extract.dueInDays).iso, note: (brief.due_date && brief.due_date.note) || "" };
+        var meta = JSON.parse(JSON.stringify(f.extract.meta));
+        meta.sources = files.map(function (file) {
+          var kind = kindOf(file);
+          return { name: file.name, kind: kind, chars: 0, images: 0, has_blobs: kind === "pdf" || kind === "image", handling: "inline" };
+        });
+        meta.typed_text_chars = (body && body.get && body.get("text") || "").length;
         Object.defineProperty(xhr, "status", { value: 200, configurable: true });
-        Object.defineProperty(xhr, "response", { value: { brief: brief, meta: f.extract.meta }, configurable: true });
+        Object.defineProperty(xhr, "response", { value: { brief: brief, meta: meta, evidence: f.extract.evidence || [], texts: got[1] },
+          configurable: true });
         xhr.getResponseHeader = function () { return null; };
         if (xhr.onload) xhr.onload();
       });

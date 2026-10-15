@@ -919,6 +919,98 @@
    "summary": "A launch party for a new drink, with press, creators and social content.",
    "extraction_warnings": []
   },
+  "evidence": [
+   {
+    "field": "client_name",
+    "source": 1,
+    "page": 1,
+    "quote": "Globex Beverages"
+   },
+   {
+    "field": "project_title",
+    "source": 1,
+    "page": 1,
+    "quote": "Launch Party for Zest"
+   },
+   {
+    "field": "event_period",
+    "source": 1,
+    "page": 1,
+    "quote": "Event: August 8, 2027, 7:00 PM"
+   },
+   {
+    "field": "venue",
+    "source": 1,
+    "page": 1,
+    "quote": "Venue: Sample Rooftop Bar, Makati"
+   },
+   {
+    "field": "key_dates.0",
+    "source": 1,
+    "page": 1,
+    "quote": "Guest list due on July 20, 2027"
+   },
+   {
+    "field": "due_date",
+    "source": 1,
+    "page": 1,
+    "quote": "Proposals are due at 12:00 PM via email"
+   },
+   {
+    "field": "objectives.0",
+    "source": 1,
+    "page": 2,
+    "quote": "launch the new drink with press and creators"
+   },
+   {
+    "field": "objectives.1",
+    "source": 1,
+    "page": 2,
+    "quote": "create 200 pieces of social content"
+   },
+   {
+    "field": "target_audience.0",
+    "source": 1,
+    "page": 2,
+    "quote": "lifestyle press and creators"
+   },
+   {
+    "field": "target_audience.1",
+    "source": 1,
+    "page": 2,
+    "quote": "young professionals aged 22 to 35"
+   },
+   {
+    "field": "kpis.0",
+    "source": 1,
+    "page": 2,
+    "quote": "150 guests"
+   },
+   {
+    "field": "kpis.1",
+    "source": 1,
+    "page": 2,
+    "quote": "200 social posts"
+   },
+   {
+    "field": "kpis.2",
+    "source": 1,
+    "page": 1,
+    "quote": "20 press mentions"
+   },
+   {
+    "field": "budget.amount",
+    "source": 1,
+    "page": 2,
+    "quote": "Budget: PHP 1,200,000 all-in, exclusive of VAT"
+   },
+   {
+    "field": "proposal_submission.details",
+    "source": 1,
+    "page": 2,
+    "quote": "Submit a short deck with a budget"
+   }
+  ],
   "meta": {
    "model": "gemini-sample",
    "duration_ms": 6200,

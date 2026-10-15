@@ -59,8 +59,11 @@
   <meta http-equiv="Expires" content="0">
   <!-- connect-src lists everywhere the page may send a request (this alone stops a login token being
        sent anywhere else): itself, the two services, Google (to test a Gemini key), and this computer
-       (for the ?gemini= / ?lark= test addresses, which only work on a local page anyway). -->
-  <meta http-equiv="Content-Security-Policy" content="connect-src 'self' https://lark-proxy-dwiw.onrender.com https://gemini-pdf-6wp4.onrender.com https://generativelanguage.googleapis.com http://127.0.0.1:* http://localhost:*; object-src 'none'; base-uri 'self'; form-action 'self'">
+       (for the ?gemini= / ?lark= test addresses, which only work on a local page anyway), plus
+       jsDelivr for "Check sources" (pdf.js fonts and character maps, Tesseract's engine and language
+       data; no login token is ever sent there) and data: (Tesseract's engine is embedded in its script;
+       a data: request never leaves the browser). -->
+  <meta http-equiv="Content-Security-Policy" content="connect-src 'self' https://lark-proxy-dwiw.onrender.com https://gemini-pdf-6wp4.onrender.com https://generativelanguage.googleapis.com https://cdn.jsdelivr.net data: http://127.0.0.1:* http://localhost:*; object-src 'none'; base-uri 'self'; form-action 'self'">
   <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Fetch · Mineski</title>
@@ -85,7 +88,8 @@
       var v = window.APP_BUILD = Date.now().toString(36);
       var files = ["js/config.js", "js/icons.js", "js/brief.js", "js/ui.js", "js/cells.js", "js/errors.js", "js/schema.js",
                    "js/tables.js", "js/verify.js", "js/rows.js", "js/ops.js", "js/settings.js", "js/net.js", "js/auth.js",
-                   "js/extract.js", "js/lark.js", "js/doc.js", "js/pdf.js", "js/settings-view.js", "js/app.js"];
+                   "js/extract.js", "js/lark.js", "js/doc.js", "js/pdf.js", "js/match.js", "js/evidence.js",
+                   "js/sources.js", "js/settings-view.js", "js/app.js"];
       var map = { imports: {} };
       files.forEach(function (f) { map.imports[new URL(f, location.href).href] = new URL(f + "?v=" + v, location.href).href; });
       document.write('<link rel="stylesheet" href="css/theme.css?v=' + v + '">');
@@ -257,6 +261,12 @@
       <div class="callout callout-warn" id="warnBanner" hidden role="status"></div>
       <div class="split">
         <div class="paper-wrap">
+          <div class="paper-tools" id="checkBar" hidden>
+            <button type="button" class="btn btn-sm btn-tonal" id="checkBtn" aria-pressed="false">
+              <span class="i" data-icon="search" aria-hidden="true"></span> <span class="label">Check sources</span>
+            </button>
+            <span class="hint" id="checkHint" hidden>Click an underlined value to see where it came from. Editing is paused.</span>
+          </div>
           <article class="paper" id="paper" aria-label="Project brief document"></article>
         </div>
         <aside aria-label="Actions">
@@ -271,6 +281,13 @@
               <span class="i" data-icon="download" aria-hidden="true"></span> <span class="label">Download PDF</span><span class="label-short">PDF</span>
             </button>
           </div>
+          <section class="card card-pad stack src-panel" id="srcPanel" aria-labelledby="srcTitle" hidden>
+            <div class="card-head">
+              <h2 id="srcTitle"><span class="i" data-icon="search" aria-hidden="true"></span> <span id="srcTitleText">Sources</span></h2>
+              <button type="button" class="icon-btn" id="srcClose" aria-label="Done checking sources" title="Done checking"><span class="i" data-icon="x" aria-hidden="true"></span></button>
+            </div>
+            <div class="src-body" id="srcBody"></div>
+          </section>
           <section class="card card-pad stack" aria-labelledby="clsTitle">
             <div class="card-head">
               <h2 id="clsTitle"><span class="i" data-icon="sparkles" aria-hidden="true"></span> Requirement &amp; VAT</h2>
@@ -444,6 +461,16 @@
       </div>
     </section>
   </main>
+
+  <dialog class="modal wide src-dialog" id="srcDialog" aria-labelledby="srcDialogTitle">
+    <div class="modal-form">
+      <header class="modal-head"><h2 id="srcDialogTitle">Source</h2></header>
+      <div class="modal-body src-body" id="srcDialogBody"></div>
+      <footer class="modal-actions">
+        <button type="button" class="btn" id="srcDialogClose">Close</button>
+      </footer>
+    </div>
+  </dialog>
 
   <dialog class="modal" id="saveDialog" aria-labelledby="saveTitle">
     <form class="modal-form" method="dialog" id="saveForm">

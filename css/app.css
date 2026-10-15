@@ -419,6 +419,67 @@ div.ed { display: block; }
 }
 
 /* ---- responsive: tablet layout and the phone bottom action bar ------------------------- */
+/* ---- Check sources: click a value to see the passage it came from ------------------------ */
+.paper-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 12px; }
+.paper-tools .btn[aria-pressed="true"] { background: var(--brand); color: var(--on-brand); border-color: transparent; }
+.paper.is-checking .item-add, .paper.is-checking .item-del, .paper.is-checking .item-drag,
+.paper.is-checking .clar-toggle, .paper.is-checking .doc-chip .i { display: none; }
+.paper.is-checking .ed { cursor: default; -webkit-user-modify: read-only; }
+.paper.is-checking .ed:hover, .paper.is-checking .ed:focus { background: none; box-shadow: none; }
+.paper.is-checking .ed:not(.has-src), .paper.is-checking .doc-chip:not(.has-src) { opacity: .45; }
+.paper.is-checking .has-src { cursor: pointer; text-decoration: underline dotted var(--p-marker) 2px; text-underline-offset: 4px; }
+.paper.is-checking .ed.has-src:hover { background: var(--p-hover); }
+.paper.is-checking .ed.has-src:focus-visible, .paper.is-checking .doc-chip.has-src:focus-visible { box-shadow: 0 0 0 2px var(--focus); }
+.paper.is-checking .is-src-active, .paper.is-checking .ed.is-src-active:hover { background: var(--p-tint); box-shadow: 0 0 0 2px var(--p-tint-line); }
+
+.src-body { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+/* a zoomed page scrolls inside its box; it must never widen the panel, dialog or page */
+.src-panel, .src-body, .src-view, .src-scroll { min-width: 0; }
+.src-quote { margin: 0; padding: 12px 14px; display: grid; gap: 8px; border-radius: var(--r-sm); background: var(--surface-2); border: 1px solid var(--line); }
+.src-quote figcaption { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 650; color: var(--muted); overflow-wrap: anywhere; }
+.src-quote blockquote { margin: 0; font-size: 15px; line-height: 1.5; font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
+.src-quote .btn { justify-self: start; }
+.src-edited b { color: var(--ink); }
+.src-status { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 13px; color: var(--muted); }
+.src-status:empty { display: none; }
+.src-status.is-found { color: var(--ok); }
+.src-status.is-close, .src-status.is-missing { color: var(--warn); }
+.src-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; color: var(--muted); }
+.src-empty p { margin: 0; }
+/* the source itself is shown like the paper: on white, in both themes */
+.src-view { position: relative; overflow: hidden; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); color: var(--ink); }
+.src-view:empty { display: none; }
+.src-view > .hint, .src-view > .form-error, .src-view > .src-empty { margin: 0; padding: 14px; background: var(--surface); }
+.src-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px 10px; padding: 4px 6px; border-bottom: 1px solid var(--line); font-size: 13px; font-weight: 650; }
+.src-pager, .src-zoom { display: inline-flex; align-items: center; gap: 4px; }
+.src-zoom .icon-btn { font-size: 18px; font-weight: 700; line-height: 1; }
+.src-page-n, .src-zoom-n { min-width: 44px; text-align: center; font-variant-numeric: tabular-nums; }
+/* the page itself scrolls both ways inside its own box, on a grey desk; text sources on white */
+.src-scroll { overflow: auto; max-height: min(62dvh, 820px); background: #E9E8E2; overscroll-behavior: contain; }
+.src-scroll:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.src-scroll > .btn { margin: 0 14px 14px; }
+.src-stage { position: relative; line-height: 0; margin: 10px auto; box-shadow: 0 1px 4px rgba(22, 21, 15, .18); background: #fff; }
+.src-canvas { display: block; width: 100%; height: auto; }
+.src-hits { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.src-hits rect { fill: rgba(255, 200, 0, .32); stroke: #E0A800; stroke-width: 1.5px; vector-effect: non-scaling-stroke; }
+.src-text { margin: 0; padding: 14px; min-height: 100%; background: #fff; color: #16150F; white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.6 var(--mono); }
+.src-text mark { background: #FFE27A; color: inherit; border-radius: 3px; box-shadow: 0 0 0 2px #FFE27A; }
+.src-more { color: #6B6A63; }
+.src-dialog .modal-body { padding-bottom: 14px; }
+.src-dialog .src-scroll { max-height: 58dvh; }
+
+@media (min-width: 1025px) {
+  .split.is-checking { grid-template-columns: minmax(0, 1fr) minmax(360px, 44%); }
+  .split.is-checking > aside > :not(.actions):not(.src-panel) { display: none; }
+  .src-panel { display: flex; flex-direction: column; max-height: calc(100dvh - var(--topbar) - 120px); }
+  .src-panel .card-head { margin-bottom: 0; }
+  .src-panel .src-body { overflow: auto; margin: 0 -4px; padding: 2px 4px; }
+  .src-panel .src-scroll { max-height: max(260px, calc(100dvh - var(--topbar) - 360px)); }
+}
+@media (max-width: 1024px) {
+  .src-panel { display: none !important; }   /* the dialog shows the source instead */
+}
+
 @media (max-width: 1024px) {
   .split > aside { grid-template-columns: 1fr 1fr; align-items: start; }
   .split > aside > .actions { grid-column: 1 / -1; grid-template-columns: repeat(3, 1fr); }
@@ -458,7 +519,8 @@ div.ed { display: block; }
 
 /* ---- print: just the paper ----------------------------------------------------------- */
 @media print {
-  [data-view="result"] .page-head, #warnBanner, .split > aside, .banner, .clar-bar, .clar-toggle, .item-add, .item-del, .item-drag, .due-rel, .badge-suggest { display: none !important; }
+  [data-view="result"] .page-head, #warnBanner, .split > aside, .banner, .clar-bar, .clar-toggle, .item-add, .item-del, .item-drag, .due-rel, .badge-suggest, .paper-tools { display: none !important; }
+  .paper.is-checking .ed, .paper.is-checking .doc-chip { opacity: 1 !important; text-decoration: none !important; }
   .split { display: block; }
   .paper { box-shadow: none; padding: 0; animation: none; }
   .doc-sec { animation: none; break-inside: auto; }

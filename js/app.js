@@ -16,6 +16,8 @@ import * as auth from "./auth.js";
 import * as extract from "./extract.js";
 import * as lark from "./lark.js";
 import * as paper from "./doc.js";   // not "doc": that name is used for the open brief below
+import * as E from "./evidence.js";
+import * as sources from "./sources.js";
 import * as pdf from "./pdf.js";
 import { createSettingsView, fmtLeft, fmtTime } from "./settings-view.js";
 import * as settings from "./settings.js";
@@ -51,12 +53,13 @@ const S = {
   view: null,
   items: [],        // compose: { id, file, kind, thumb }
   job: null,        // running extraction
-  draft: recall("local", KEYS.draft),   // { model, original, meta, sources, createdAt, clientToken, newer }
+  draft: recall("local", KEYS.draft),   // { model, original, meta, sources, createdAt, clientToken, newer, evidence }
   doc: null,        // what the result view shows
   edits: {},        // unsaved edits to saved briefs, by record id: { model, nextSteps, attachments }
   draftFiles: [],   // File objects behind the draft (memory only; attached to the Lark row on save)
   briefs: null, briefsAt: 0, briefsLoading: null, larkError: null, highlight: null,
   working: new Set(),   // ids with a Done change in flight
+  checking: false,      // "Check sources" mode on the open draft
 };
 if (S.draft && !S.draft.model) S.draft = null;
 // The cached list gives an instant first paint, but only while a login is alive (it is dropped
@@ -608,12 +611,16 @@ async function startExtraction() {
     $("#loader").classList.add("is-done");
     autoRetry.used = false;
     const model = B.normalize(res.brief);
+    const clientToken = lark.uuid();
     setDraft({
-      model, original: clone(model), meta: res.meta, createdAt: Date.now(), clientToken: lark.uuid(),
+      model, original: clone(model), meta: res.meta, createdAt: Date.now(), clientToken,
       newer: B.isNewer(res.brief),   // made by a newer extraction service than this page knows: don't save from here
       sources: [...files.map((f) => f.name), ...(text ? ["Typed / pasted text"] : [])], nextSteps: [],
+      // Where each value came from ("Check sources"); null from a service older than 1.6. Never sent to Lark.
+      evidence: Array.isArray(res.evidence) ? res.evidence : null,
     });
     S.draftFiles = [...files, ...(text ? [new File([text], "Brief text.txt", { type: "text/plain" })] : [])];
+    sources.attach(clientToken, { files, texts: res.texts, typed: text });   // memory only, like draftFiles
     S.job = null;
     clearCompose();
     const secs = Math.round((performance.now() - job.started) / 1000);
@@ -893,8 +900,12 @@ function openDoc(doc) {
   doc.savedExtras = doc.mode === "record" ? extrasKey({ requirement: doc.savedRequirement ?? doc.requirement,
     vat: doc.savedVat ?? doc.vat, nextSteps: doc.savedNextSteps || doc.nextSteps,
     attachments: doc.savedAttachments || doc.attachments }) : null;
+  if (S.checking) setChecking(false);
   S.doc = doc;
   showView("result");
+  $("#checkBar").hidden = !(doc.mode === "draft" && Array.isArray(S.draft?.evidence));
+  $("#checkBtn").disabled = !S.draft?.evidence?.length;
+  $("#checkBtn").title = S.draft?.evidence?.length ? "" : "Gemini didn't quote any sources for this brief.";
   setTitle(B.isMissing(doc.model.project_title) ? "Brief" : B.normalize(doc.model).project_title);
   const sheet = $("#paper");   // sections animate in only when a brief is opened
   sheet.classList.add("paper-enter");
@@ -963,8 +974,89 @@ function onDocChange() {
   refreshResult();
 }
 
+// ---- Check sources (new drafts only): click a value to see where it came from ---------
+const NARROW = matchMedia("(max-width: 1024px)");   // the aside stacks below the paper: use a dialog
+let srcFocus = null;
+
+function setChecking(on) {
+  const d = S.draft;
+  on = !!(on && S.doc?.mode === "draft" && d?.evidence?.length);
+  if (on === S.checking) return;
+  S.checking = on;
+  $("#checkBtn").setAttribute("aria-pressed", String(on));
+  $("#checkBtn .label").textContent = on ? "Done checking" : "Check sources";
+  $("#checkHint").hidden = !on;
+  $('[data-view="result"] .split').classList.toggle("is-checking", on);
+  $("#srcPanel").hidden = !on;
+  paper.setChecking(on ? {
+    has: (path) => E.has(path, S.doc.model, d.original, d.evidence),
+    pick: (path, el) => openSource(path, el),
+  } : null);
+  if (on) {
+    sources.warm(d);
+    showSourceHint();
+  } else {
+    sources.clear($("#srcBody"));
+    if ($("#srcDialog").open) $("#srcDialog").close();
+  }
+}
+
+function showSourceHint() {
+  $("#srcTitleText").textContent = "Sources";
+  sources.clear($("#srcBody"));
+  $("#srcBody").append(h("p", { class: "hint" }, "Click an underlined value in the document to see the passage it came from."));
+}
+
+function openSource(path, el) {
+  const d = S.draft;
+  if (!S.checking || !d) return;
+  paper.markActive(path);
+  const narrow = NARROW.matches;
+  const host = narrow ? $("#srcDialogBody") : $("#srcBody");
+  (narrow ? $("#srcDialogTitle") : $("#srcTitleText")).textContent = sources.fieldLabel(path);
+  sources.show(host, {
+    path, draft: d, res: E.resolve(path, S.doc.model, d.original, d.evidence),
+    onAddFile: (file) => {
+      if (sources.addFile(d, file)) openSource(path, el);
+      else toast(`“${file.name}” isn't one of the files this brief was extracted from.`, { type: "error" });
+    },
+  });
+  if (narrow && !$("#srcDialog").open) {
+    srcFocus = el;
+    $("#srcDialog").showModal();
+    $("#srcDialogClose").focus();
+  }
+}
+
+function wireSources() {
+  $("#checkBtn").onclick = () => setChecking(!S.checking);
+  $("#srcClose").onclick = () => { setChecking(false); $("#checkBtn").focus(); };
+  $("#srcDialogClose").onclick = () => $("#srcDialog").close();
+  $("#srcDialog").addEventListener("click", (e) => { if (e.target === e.currentTarget) e.currentTarget.close(); });
+  $("#srcDialog").addEventListener("close", () => {
+    sources.clear($("#srcDialogBody"));
+    paper.markActive(null);
+    srcFocus?.focus?.();
+    srcFocus = null;
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && S.checking && S.view === "result" && !$("#srcDialog").open && !document.querySelector("dialog[open]")) {
+      setChecking(false);
+      $("#checkBtn").focus();
+    }
+  });
+  // Crossing the breakpoint moves the source between the side panel and the dialog.
+  NARROW.addEventListener("change", () => {
+    if (!S.checking) return;
+    if ($("#srcDialog").open) $("#srcDialog").close();
+    showSourceHint();
+    paper.markActive(null);
+  });
+}
+
 function wireResult() {
   paper.mount($("#paper"), onDocChange);
+  wireSources();
 
   $("#copyChatBtn").onclick = async (e) => {
     const btn = e.currentTarget;   // read before awaiting: currentTarget is null afterwards
@@ -1141,6 +1233,7 @@ async function confirmSave({ skipFailed = false } = {}) {
     if (isNew) {
       setDraft(null);
       S.draftFiles = [];
+      sources.drop();
       S.highlight = row.id;
       upsertBrief(row, true);
     } else {

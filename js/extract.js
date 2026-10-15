@@ -92,7 +92,8 @@ const readFactor = () => Math.min(2.5, Math.max(0.5, Number(recall("local", FACT
 function estimate(files, textChars) {
   const mb = files.reduce((s, f) => s + f.size, 0) / 1048576;
   const upload = mb / 1.5;   // assume ~1.5 MB/s upstream
-  const work = 6 + 1.5 * files.length + 1.0 * mb + textChars / 30000;   // Flash-Lite: ~4–8 s for a typical brief
+  // Flash-Lite: ~4–8 s for a typical brief, plus ~2 s for the "Check sources" quotes (service 1.6+)
+  const work = 8 + 1.5 * files.length + 1.0 * mb + textChars / 30000;
   return { total: Math.round(Math.min(240, upload + work * readFactor())), upload, cold: 0, work: work * readFactor() };
 }
 

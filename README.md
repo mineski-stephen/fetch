@@ -196,6 +196,9 @@ project-brief/                     ← the repository root = the website root
 │   ├── brief.js                   Brief model: normalise, dates, Markdown, chat text (pure)
 │   ├── doc.js                     Editable document renderer (click-to-edit)
 │   ├── pdf.js                     PDF export (pdfmake, lazy-loaded from cdnjs)
+│   ├── sources.js                 "Check sources": the source viewer (pdf.js, Tesseract.js OCR, text), lazy-loaded from jsDelivr
+│   ├── evidence.js                Which quote belongs to a field, after reorders and edits (pure)
+│   ├── match.js                   Finding a quote in a page, text or OCR words, typo-tolerant (pure)
 │   ├── ui.js                      Shared helpers: toasts, menus, sheets, busy buttons, theme (copied unedited)
 │   └── icons.js                   Shared inline SVG icons (copied unedited)
 ├── manifest.webmanifest           App name + icons for "Add to Home Screen"
@@ -220,6 +223,7 @@ project-brief/                     ← the repository root = the website root
 │   ├── lark-node.mjs              Direct Lark access for those scripts (app token from tools/.env)
 │   ├── preview-shim.js            `?preview` mode: answers the services from the sample data
 │   ├── preview-fixture.json       Made-up sample briefs and a canned extraction (no real data)
+│   ├── preview-sample.pdf         A two-page sample brief holding the canned extraction's quotes ("Check sources")
 │   └── make-preview-fixture.mjs   Regenerates that file (`npm run preview:fixture`)
 └── tools/
     ├── setup_lark_table.py        Creates or repairs the Lark table's columns (re-runnable, dry run by default)
@@ -503,6 +507,15 @@ variable (see `tech/lark-proxy/README.md`).
    bullet; Backspace on an empty bullet removes it. Click the yellow chips to
    change *budget type* or *submission type*, and the date chip to pick the
    *due date*.
+   **Check sources** (above the document) pauses editing and underlines every
+   value Gemini quoted a source for. Click one to see the passage it came from,
+   highlighted in your own file (PDF page, screenshot, Word/Excel/e-mail text,
+   or what you typed). Use it to double-check budgets, dates and KPIs. A
+   dimmed value has no quote: it was inferred, a default, or added by you.
+   Click **Done checking** (or press Esc) to edit again. It works on a new
+   brief until you save it; filed briefs are assumed checked. After a page
+   reload the quote still shows, and **Add “file” again** brings the
+   highlight back.
 4. **Copy for group chat** → paste it in the chat. **Download PDF** for a file.
 5. **Save to Lark Base** → check the summary → **Save to Lark**. You land on
    **All briefs**, with your new brief highlighted.
@@ -709,8 +722,12 @@ changed and every other row is untouched.
   address bar before anything else happens. Service-address overrides only work on
   a local page, so a hosted page can't be pointed at a proxy that collects tokens.
   `index.html` also carries a referrer policy and a Content-Security-Policy whose
-  `connect-src` lists only the page itself, the two services, Google (to test a key) and this
-  computer (for the test addresses); this alone stops a token being sent anywhere else.
+  `connect-src` lists only the page itself, the two services, Google (to test a key), jsDelivr
+  (the *Check sources* viewer's fonts, character maps and OCR data; nothing is sent there),
+  `data:` and this computer (for the test addresses); this alone stops a token being sent anywhere else.
+- **Check sources keeps files in memory only.** The quotes travel with the draft
+  (`fetch.draft`, a few KB); the files and their converted text stay in the tab's
+  memory and are gone on reload or save. Nothing about them is stored in Lark.
 - **Log out is local.** Lark has no way to revoke a token, so *Log out* forgets it
   (and the cached briefs) in this browser only. The token stays valid until it expires (about 2 hours).
 - **The cached list of briefs** (`fetch.cache.<app>:<table>`) lets the page paint at
@@ -745,6 +762,12 @@ changed and every other row is untouched.
   Latin, Greek and Cyrillic but not CJK. Since summaries are written in
   English this rarely matters, but Korean or Chinese proper nouns would not
   show in the PDF (they do show on screen and in the chat text).
+- **Check sources** shows Gemini's own quote, then finds it in the file. A
+  reworded quote is highlighted as a "closest match"; one it can't find says so
+  rather than guessing. Scanned PDFs and screenshots are read with OCR in the
+  browser (a ~10 MB download the first time, a few seconds per page; only the
+  pages Gemini named are read). Quotes add roughly 1k output tokens (a few
+  seconds) to each extraction.
 - **Legacy formats** (`.doc`, `.ppt`, `.xls`, Outlook `.msg`) must be saved
   as PDF or a modern Office format first; the page tells the user how.
 - **History is rendered from JSON**: see [The Lark table](#the-lark-table)
@@ -757,6 +780,9 @@ changed and every other row is untouched.
 | You see | What to do |
 | ------- | ---------- |
 | A yellow bar: "**Setup needed:** add your Gemini API key to start extracting briefs." | The extraction service has no shared key and you haven't added yours. Click the bar and paste your key in Settings. |
+| No **Check sources** button | The brief was extracted by a service older than 1.6.0, or it's a filed brief (the button is for new drafts only). |
+| Check sources: "Couldn't load the document viewer" | The page couldn't reach `cdn.jsdelivr.net` (offline, or a blocker). Allow it and click the field again; the quote itself always shows. |
+| Check sources: "Couldn't pinpoint this in the document" | Gemini's quote isn't word-for-word in the file (or is in an image inside a Word file or e-mail). Read the quote and check that part of the brief yourself. |
 | "Your Gemini key needs attention" | Google rejected your key. Re-copy it from Google AI Studio into Settings and click **Test key**. |
 | "Gemini usage limit reached" | Your key hit its free-tier limit. Wait a bit, or use another key. |
 | "Gemini is overloaded right now. Please try again in a minute." | Temporary Gemini capacity issue. The page retries once on its own ("Retrying automatically in 20s…"); try again in a minute. |

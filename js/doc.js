@@ -27,6 +27,9 @@ const PLAINTEXT = (() => {
 })();
 
 let root = null, model = null, onChange = () => {}, pop = null;
+// "Check sources" mode: { has(path), pick(path, el) } while on. Fields stop being editable and
+// a click (or Enter / Space) asks the page to show where the value came from.
+let checking = null;
 const GRIP = '<svg viewBox="0 0 10 16" width="10" height="16"><g fill="currentColor"><circle cx="2.5" cy="3" r="1.5"/>'
   + '<circle cx="7.5" cy="3" r="1.5"/><circle cx="2.5" cy="8" r="1.5"/><circle cx="7.5" cy="8" r="1.5"/>'
   + '<circle cx="2.5" cy="13" r="1.5"/><circle cx="7.5" cy="13" r="1.5"/></g></svg>';
@@ -55,14 +58,14 @@ function set(path, value) {
 function ed(path, opts = {}) {
   const value = get(path);
   const missing = B.isMissing(value) || (path === "project_title" && value === "Untitled Project");
+  const src = checking && checking.has(path);
   const el = h(opts.tag || "span", {
-    class: `ed${missing ? " is-missing" : ""}${opts.cls ? " " + opts.cls : ""}`,
+    class: `ed${missing ? " is-missing" : ""}${opts.cls ? " " + opts.cls : ""}${src ? " has-src" : ""}`,
     "data-path": path,
     "data-placeholder": opts.placeholder || B.NS,
-    contenteditable: PLAINTEXT ? "plaintext-only" : "true",
-    spellcheck: "true",
-    role: "textbox",
-    "aria-label": opts.label || null,
+    ...(checking
+      ? { tabindex: src ? "0" : "-1", role: "button", "aria-label": `${opts.label || "Value"}: ${src ? "show source" : "no source"}` }
+      : { contenteditable: PLAINTEXT ? "plaintext-only" : "true", spellcheck: "true", role: "textbox", "aria-label": opts.label || null }),
   });
   el.textContent = missing ? "" : value;
   return el;
@@ -97,7 +100,7 @@ function enumChip(path) {
   const v = get(path);
   const tone = v === "NOT SPECIFIED" ? "muted" : v === "TO BE CONFIRMED" ? "warn" : "brand";
   return h("button", {
-    type: "button", class: `doc-chip chip-${tone}`, "data-enum": path, "aria-haspopup": "listbox",
+    type: "button", class: `doc-chip chip-${tone}${checking?.has(path) ? " has-src" : ""}`, "data-enum": path, "aria-haspopup": "listbox",
     title: "Click to change",
   }, B.label(v), ic("caret"));
 }
@@ -108,7 +111,8 @@ function dueCell() {
   return h("div", { class: "due" },
     h("div", { class: "due-line" },
       h("button", {
-        type: "button", class: `doc-chip chip-date${iso ? "" : " is-missing"}`, "data-date": "due_date.date",
+        type: "button", class: `doc-chip chip-date${iso ? "" : " is-missing"}${checking?.has("due_date.date") ? " has-src" : ""}`,
+        "data-date": "due_date.date",
         title: "Click to pick a date",
       }, ic("calendar"), iso ? B.fmtDate(iso, true) : "Set due date"),
       badge && h("span", { class: `due-rel tone-${badge.tone}` }, badge.text)),
@@ -268,6 +272,13 @@ function removeItem(name, i, focusPrev = true) {
 function onKeydown(e) {
   const el = e.target.closest?.(".ed");
   if (!el || e.isComposing) return;
+  if (checking) {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      checking.pick(el.dataset.path, el);
+    }
+    return;
+  }
   const parts = el.dataset.path.split(".");
   const name = parts[0], i = +parts[1], fields = LISTS[name];
   const inList = name in LISTS && parts.length >= 2;
@@ -349,6 +360,7 @@ function moveItem(name, from, to, focusHandle = false) {
 }
 
 function onDragStart(e) {
+  if (checking) return;
   const handle = e.target.closest(".item-drag");
   if (!handle || e.button > 0) return;
   e.preventDefault();
@@ -405,6 +417,14 @@ function onHandleKey(e) {
 }
 
 function onClick(e) {
+  if (checking) {
+    const el = e.target.closest(".ed[data-path], [data-enum], [data-date]");
+    if (el && root.contains(el)) {
+      e.preventDefault();
+      checking.pick(el.dataset.path || el.dataset.enum || el.dataset.date, el);
+    }
+    return;
+  }
   const btn = e.target.closest("button");
   if (!btn || !root.contains(btn)) return;
   if (btn.dataset.clar) {
@@ -520,4 +540,19 @@ function mount(el, changeHandler) {
   root.addEventListener("keydown", onHandleKey);
 }
 
-export { mount, render, closePopover as close };
+/** Turn "Check sources" mode on ({ has, pick }) or off (null), and re-render. */
+function setChecking(cfg) {
+  checking = cfg || null;
+  root.classList.toggle("is-checking", !!checking);
+  if (model) render(model);
+}
+
+/** Mark the field whose source is showing (every copy of it: the title and client appear twice). */
+function markActive(path) {
+  root.querySelectorAll(".is-src-active").forEach((el) => el.classList.remove("is-src-active"));
+  if (!path) return;
+  root.querySelectorAll(`[data-path="${CSS.escape(path)}"], [data-enum="${CSS.escape(path)}"], [data-date="${CSS.escape(path)}"]`)
+    .forEach((el) => el.classList.add("is-src-active"));
+}
+
+export { mount, render, closePopover as close, setChecking, markActive };

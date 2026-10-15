@@ -90,3 +90,8 @@ test("chat html escapes what it shows", () => {
   const html = B.toChatHtml(B.normalize({ ...FULL, project_title: "A <b> & \"B\"" }));
   assert.match(html, /A &lt;b&gt; &amp; &quot;B&quot;/);
 });
+
+test("normalize never keeps evidence (Check sources is for drafts only, never stored in Lark)", () => {
+  const m = B.normalize({ ...FULL, evidence: [{ field: "venue", source: 1, page: 1, quote: "SM Mall of Asia Arena" }] });
+  assert.equal("evidence" in m, false);
+});

@@ -86,11 +86,57 @@ const extractBrief = brief({
   summary: "A launch party for a new drink, with press, creators and social content.",
 });
 
+// "Check sources": a two-page sample PDF holding the extraction's quotes. Upload tests/preview-sample.pdf
+// in preview mode, then turn on Check sources. The quotes deliberately include a wrong page (kpis.2 says
+// page 1; it's on 2), a reworded quote (target_audience.1) and a value with no quote (scope_of_work).
+const SAMPLE_PAGES = [
+  ["Globex Beverages - Brief for Agencies", "Launch Party for Zest", "",
+    "Event: August 8, 2027, 7:00 PM", "Venue: Sample Rooftop Bar, Makati", "Guest list due on July 20, 2027.",
+    "Proposals are due at 12:00 PM via email."],
+  ["Objectives: launch the new drink with press and creators, and", "create 200 pieces of social content.", "",
+    "Audience: lifestyle press and creators; young professionals aged 22-35.", "",
+    "Success measures: 150 guests, 200 social posts and 20 press mentions.", "",
+    "Budget: PHP 1,200,000 all-in, exclusive of VAT.", "Submit a short deck with a budget for a pitch presentation."],
+];
+const ev = (field, page, quote) => ({ field, source: 1, page, quote });
+const extractEvidence = [
+  ev("client_name", 1, "Globex Beverages"), ev("project_title", 1, "Launch Party for Zest"),
+  ev("event_period", 1, "Event: August 8, 2027, 7:00 PM"), ev("venue", 1, "Venue: Sample Rooftop Bar, Makati"),
+  ev("key_dates.0", 1, "Guest list due on July 20, 2027"), ev("due_date", 1, "Proposals are due at 12:00 PM via email"),
+  ev("objectives.0", 2, "launch the new drink with press and creators"), ev("objectives.1", 2, "create 200 pieces of social content"),
+  ev("target_audience.0", 2, "lifestyle press and creators"), ev("target_audience.1", 2, "young professionals aged 22 to 35"),
+  ev("kpis.0", 2, "150 guests"), ev("kpis.1", 2, "200 social posts"), ev("kpis.2", 1, "20 press mentions"),
+  ev("budget.amount", 2, "Budget: PHP 1,200,000 all-in, exclusive of VAT"),
+  ev("proposal_submission.details", 2, "Submit a short deck with a budget"),
+];
+
+/** A minimal A4 PDF (Helvetica, one text line per entry). Enough for pdf.js to render and read. */
+function samplePdf(pages) {
+  const esc = (s) => s.replace(/[\\()]/g, (c) => `\\${c}`);
+  const objs = ["<< /Type /Catalog /Pages 2 0 R >>", null, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"];
+  const kids = [];
+  pages.forEach((lines) => {
+    const stream = `BT /F1 13 Tf 16 TL 60 770 Td ${lines.map((l) => `(${esc(l)}) Tj T*`).join(" ")} ET`;
+    objs.push(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
+    objs.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents ${objs.length} 0 R >>`);
+    kids.push(`${objs.length} 0 R`);
+  });
+  objs[1] = `<< /Type /Pages /Kids [${kids.join(" ")}] /Count ${kids.length} >>`;
+  let out = "%PDF-1.4\n";
+  const offsets = objs.map((o, i) => { const at = out.length; out += `${i + 1} 0 obj\n${o}\nendobj\n`; return at; });
+  const xref = out.length;
+  out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n${offsets.map((o) => `${String(o).padStart(10, "0")} 00000 n \n`).join("")}`;
+  out += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return out;
+}
+writeFileSync(new URL("./preview-sample.pdf", import.meta.url), samplePdf(SAMPLE_PAGES), "latin1");
+
 writeFileSync(new URL("./preview-fixture.json", import.meta.url), JSON.stringify({
   note: "Synthetic sample data for ?preview. Made by tests/make-preview-fixture.mjs. No real data.",
   fields,
   records: lark.state.records,
-  extract: { dueInDays: 14, brief: extractBrief, meta: { model: "gemini-sample", duration_ms: 6200, sources: [{ kind: "pdf", name: "sample-brief.pdf" }], failed_attempts: [] } },
+  extract: { dueInDays: 14, brief: extractBrief, evidence: extractEvidence,
+    meta: { model: "gemini-sample", duration_ms: 6200, sources: [{ kind: "pdf", name: "sample-brief.pdf" }], failed_attempts: [] } },
   services: {
     gemini: { service: SERVICES.gemini.service, version: "1.5.0", api: 1, configured: true, endpoints: ["GET /", "GET /health", "POST /extract"],
       cors: { origins: "*", allow_headers: SERVICES.gemini.headers.concat("Content-Type") },
