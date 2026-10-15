@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { resolve, has } from "../js/evidence.js";
+import { resolve, has, passagesOf } from "../js/evidence.js";
 
 const clone = (x) => JSON.parse(JSON.stringify(x));
 const ORIGINAL = {
@@ -65,4 +65,16 @@ test("an original item without a quote says so; pair items resolve by either hal
 test("no evidence at all is handled", () => {
   assert.equal(resolve("venue", ORIGINAL, ORIGINAL, null).ev, null);
   assert.equal(resolve("kpis.0", ORIGINAL, undefined, undefined).why, "added");
+});
+
+test("several passages per field (service 1.7) and one (1.6) both work", () => {
+  const evidence = [{ field: "kpis.0", passages: [
+    { source: 1, page: 2, quote: "The vendor must produce an ornamental tree for the holidays" },
+    { source: 1, page: 5, quote: "The tree must contain specifically only red ornaments" },
+    { source: 9, page: 0, quote: "" }]}];
+  const model = { kpis: ["Create a Christmas tree with only red ornaments"] };
+  const r = resolve("kpis.0", model, model, evidence);
+  assert.deepEqual(passagesOf(r.ev).map((p) => p.page), [2, 5]);
+  assert.deepEqual(passagesOf({ field: "venue", source: 1, page: 0, quote: "SMX" }), [{ source: 1, page: 0, quote: "SMX" }]);
+  assert.deepEqual(passagesOf(null), []);
 });

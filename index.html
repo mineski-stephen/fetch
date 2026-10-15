@@ -96,11 +96,6 @@
       document.write('<link rel="stylesheet" href="css/mineski-base.css?v=' + v + '">');
       document.write('<link rel="stylesheet" href="css/app.css?v=' + v + '">');
       document.write('<script type="importmap">' + JSON.stringify(map) + '<\/script>');
-      // Developers only: ?preview on a local page runs on sample data, with Lark and the extraction
-      // service simulated (tests/preview-shim.js). Nothing is sent anywhere.
-      if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname) && /[?&]preview(&|=|$)/.test(location.search)) {
-        document.write('<script src="tests/preview-shim.js?v=' + v + '"><\/script>');
-      }
     })();
   </script>
 </head>

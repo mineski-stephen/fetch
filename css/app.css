@@ -435,10 +435,17 @@ div.ed { display: block; }
 .src-body { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
 /* a zoomed page scrolls inside its box; it must never widen the panel, dialog or page */
 .src-panel, .src-body, .src-view, .src-scroll { min-width: 0; }
-.src-quote { margin: 0; padding: 12px 14px; display: grid; gap: 8px; border-radius: var(--r-sm); background: var(--surface-2); border: 1px solid var(--line); }
-.src-quote figcaption { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 650; color: var(--muted); overflow-wrap: anywhere; }
-.src-quote blockquote { margin: 0; font-size: 15px; line-height: 1.5; font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
-.src-quote .btn { justify-self: start; }
+.src-lead { margin: 0; font-size: 13px; color: var(--muted); }
+/* the passages a value was based on: pick one to see it in place */
+.src-passages { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.src-passage { display: flex; align-items: flex-start; gap: 4px; border-radius: var(--r-sm); background: var(--surface-2); border: 1px solid var(--line); }
+.src-passage:has(.src-pick[aria-pressed="true"]) { border-color: var(--brand-strong); box-shadow: 0 0 0 1px var(--brand-strong); }
+.src-pick { flex: 1; min-width: 0; display: grid; gap: 4px; padding: 10px 12px; text-align: left; background: none; border: 0; border-radius: inherit; color: inherit; font: inherit; cursor: pointer; }
+.src-pick:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.src-where { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 650; color: var(--muted); overflow-wrap: anywhere; }
+.src-q { font-size: 14.5px; line-height: 1.45; font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
+.src-pick[aria-pressed="false"] .src-q { font-weight: 500; color: var(--ink-2); }
+.src-copy { margin: 6px 6px 0 0; flex: none; }
 .src-edited b { color: var(--ink); }
 .src-status { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 13px; color: var(--muted); }
 .src-status:empty { display: none; }
@@ -461,20 +468,22 @@ div.ed { display: block; }
 .src-stage { position: relative; line-height: 0; margin: 10px auto; box-shadow: 0 1px 4px rgba(22, 21, 15, .18); background: #fff; }
 .src-canvas { display: block; width: 100%; height: auto; }
 .src-hits { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.src-hits rect { fill: rgba(255, 200, 0, .32); stroke: #E0A800; stroke-width: 1.5px; vector-effect: non-scaling-stroke; }
+.src-hits rect { fill: rgba(255, 200, 0, .16); stroke: #E0A800; stroke-width: 1px; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
+.src-hits rect.is-active { fill: rgba(255, 200, 0, .36); stroke-width: 2px; stroke-dasharray: none; }
 .src-text { margin: 0; padding: 14px; min-height: 100%; background: #fff; color: #16150F; white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.6 var(--mono); }
-.src-text mark { background: #FFE27A; color: inherit; border-radius: 3px; box-shadow: 0 0 0 2px #FFE27A; }
+.src-text mark { background: #FFF3BF; color: inherit; border-radius: 3px; box-shadow: 0 0 0 1px #F2D27A; }
+.src-text mark.is-active { background: #FFE27A; box-shadow: 0 0 0 2px #E0A800; }
 .src-more { color: #6B6A63; }
 .src-dialog .modal-body { padding-bottom: 14px; }
 .src-dialog .src-scroll { max-height: 58dvh; }
 
 @media (min-width: 1025px) {
   .split.is-checking { grid-template-columns: minmax(0, 1fr) minmax(360px, 44%); }
-  .split.is-checking > aside > :not(.actions):not(.src-panel) { display: none; }
+  .split.is-checking > aside > :not(.src-panel) { display: none; }   /* the source gets the whole column */
   .src-panel { display: flex; flex-direction: column; max-height: calc(100dvh - var(--topbar) - 120px); }
   .src-panel .card-head { margin-bottom: 0; }
   .src-panel .src-body { overflow: auto; margin: 0 -4px; padding: 2px 4px; }
-  .src-panel .src-scroll { max-height: max(260px, calc(100dvh - var(--topbar) - 360px)); }
+  .src-panel .src-scroll { max-height: max(300px, calc(100dvh - var(--topbar) - 240px)); }
 }
 @media (max-width: 1024px) {
   .src-panel { display: none !important; }   /* the dialog shows the source instead */

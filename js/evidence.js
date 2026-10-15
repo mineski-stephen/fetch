@@ -76,5 +76,16 @@ export function resolve(path, model, original, evidence) {
   return { ev: null, why: "none" };
 }
 
-/** True when a path has a quote to show (for styling fields in checking mode). */
+/**
+ * The passages of an evidence entry: [{ source, page, quote }]. Service 1.7 sends several per
+ * field ({ field, passages }); drafts from 1.6 hold one ({ field, source, page, quote }).
+ */
+export function passagesOf(ev) {
+  if (!ev) return [];
+  const list = Array.isArray(ev.passages) ? ev.passages : [ev];
+  return list.filter((p) => p && p.quote && p.source >= 1)
+    .map((p) => ({ source: Number(p.source), page: Number(p.page) || 0, quote: String(p.quote) }));
+}
+
+/** True when a path has a passage to show (for styling fields in checking mode). */
 export const has = (path, model, original, evidence) => !!resolve(path, model, original, evidence).ev;

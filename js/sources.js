@@ -20,6 +20,7 @@
  * (pdf.js fonts and character maps, Tesseract's engine and language data).
  */
 import { buildIndex, find, rects, spanUnits, pageOrder } from "./match.js";
+import { passagesOf } from "./evidence.js";
 import { h, ic, copyText, flashDone } from "./ui.js";
 
 const CDN = "https://cdn.jsdelivr.net/npm/";
@@ -208,6 +209,7 @@ function stage(canvas, w, hgt, boxes, cssWidth) {
     r.setAttribute("x", b.x0 - pad); r.setAttribute("y", b.y0 - pad);
     r.setAttribute("width", b.x1 - b.x0 + pad * 2); r.setAttribute("height", b.y1 - b.y0 + pad * 2);
     r.setAttribute("rx", pad * 1.5);
+    if (b.active) r.setAttribute("class", "is-active");
     svg.append(r);
   });
   canvas.classList.add("src-canvas");
@@ -222,7 +224,7 @@ function centerIn(box, el) {
   box.scrollLeft += r.left - b.left - (box.clientWidth - r.width) / 2;
 }
 
-const firstBox = (stageEl) => stageEl.querySelector(".src-hits rect");
+const firstBox = (stageEl) => stageEl.querySelector(".src-hits rect.is-active") || stageEl.querySelector(".src-hits rect");
 
 /** The viewer's frame: a toolbar (pager, zoom) above its own scroll box. */
 function frame(view, ...tools) {
@@ -260,32 +262,57 @@ function zoomer(natural, fitWidth, apply) {
 }
 
 // ---- the viewers ------------------------------------------------------------------------
-function textView(view, text, quote, setStatus) {
+// Each viewer gets `items`: the passages of one field that are in this source, as
+// { quote, page, active }. All are highlighted; the active one (picked in the panel) is
+// stronger, centred, and decides the status line.
+
+const statusOf = (hit) => (hit ? (hit.exact ? "found" : "close") : "missing");
+
+function textView(view, text, items, setStatus) {
   const index = buildIndex([{ text }]);
-  const hit = find(index, quote);
-  const span = hit && spanUnits(index, hit)[0];
+  let activeHit = null;
+  const spans = [];
+  items.forEach((it) => {
+    const hit = find(index, it.quote);
+    if (it.active) activeHit = hit;
+    const sp = hit && spanUnits(index, hit)[0];
+    if (sp) spans.push({ from: sp.from, to: sp.to, active: it.active });
+  });
+  spans.sort((a, b) => a.from - b.from);
+  const marks = [];
+  for (const sp of spans) {   // overlapping passages become one mark
+    const last = marks[marks.length - 1];
+    if (last && sp.from < last.to) { last.to = Math.max(last.to, sp.to); last.active ||= sp.active; } else marks.push({ ...sp });
+  }
+  const focus = marks.find((m) => m.active) || marks[0];
   const pre = h("pre", { class: "src-text", dir: "auto", "aria-label": "Source text" });
   const fill = (from, to) => {
     pre.replaceChildren();
     if (from > 0) pre.append(h("span", { class: "src-more" }, "…\n"));
-    if (span) {
-      pre.append(text.slice(from, span.from), h("mark", {}, text.slice(span.from, span.to)), text.slice(span.to, to));
-    } else pre.append(text.slice(from, to));
+    let at = from;
+    for (const m of marks) {
+      if (m.to <= from || m.from >= to) continue;
+      const a = Math.max(m.from, from), b = Math.min(m.to, to);
+      pre.append(text.slice(at, a), h("mark", { class: m.active ? "is-active" : "" }, text.slice(a, b)));
+      at = b;
+    }
+    pre.append(text.slice(at, to));
     if (to < text.length) pre.append(h("span", { class: "src-more" }, "\n…"));
   };
   const big = text.length > BIG_TEXT;
-  const from = big && span ? Math.max(0, span.from - 8000) : 0;
-  const to = big ? Math.min(text.length, (span ? span.to : 0) + (span ? 8000 : BIG_TEXT)) : text.length;
+  const from = big && focus ? Math.max(0, focus.from - 8000) : 0;
+  const to = big ? Math.min(text.length, (focus ? focus.to : 0) + (focus ? 8000 : BIG_TEXT)) : text.length;
   fill(from, to);
   const scroll = frame(view);
   scroll.append(pre);
+  const center = () => centerIn(scroll, pre.querySelector("mark.is-active") || pre.querySelector("mark"));
   if (big) {
     scroll.append(h("button", { type: "button", class: "btn btn-sm btn-ghost src-whole", onclick: (e) => {
-      fill(0, text.length); e.currentTarget.remove(); centerIn(scroll, pre.querySelector("mark"));
+      fill(0, text.length); e.currentTarget.remove(); center();
     } }, "Show the whole file"));
   }
-  centerIn(scroll, pre.querySelector("mark"));
-  setStatus(hit ? (hit.exact ? "found" : "close") : "missing");
+  center();
+  setStatus(statusOf(activeHit));
 }
 
 async function pdfUnits(lib, doc, n) {
@@ -333,7 +360,7 @@ async function renderPdfPage(doc, n, cssWidth) {
   return { canvas, w: vp1.width, h: vp1.height, k: vp1.width / canvas.width };
 }
 
-async function pdfView(view, file, ev, setStatus, stale) {
+async function pdfView(view, file, items, setStatus, stale) {
   setStatus("loading", "Opening the PDF…");
   const lib = await loadPdf();
   if (!pdfDocs.has(file)) {
@@ -343,28 +370,40 @@ async function pdfView(view, file, ev, setStatus, stale) {
   }
   const doc = await pdfDocs.get(file);
   if (stale()) return;
-  const langs = langsFor(ev.quote);
-  const near = pageOrder(ev.page, doc.numPages).slice(0, ev.page ? 3 : 2);
-  let found = null;
-  setStatus("loading", "Looking for the quote…");
-  for (const n of pageOrder(ev.page, doc.numPages).slice(0, MAX_PAGES_SEARCHED)) {
-    let { units, scanned } = await pdfUnits(lib, doc, n);
-    if (stale()) return;
-    if (scanned) {
-      if (!near.includes(n)) continue;   // OCR is slow: only the pages Gemini pointed at
-      setStatus("loading", `Reading page ${n} (it's a scan)…`);
-      units = await cachedOcr(`${file.name}:${file.size}:${n}`, langs, async () => {
-        const r = await renderPdfPage(doc, n, 1000);
-        return ocrUnits(r.canvas, langs, r.k);
-      });
-      if (stale()) return;
+  const langs = langsFor(items.map((it) => it.quote).join(" "));
+
+  /** The page and boxes of one passage: Gemini's page first, then its neighbours, then the rest. */
+  async function locate(it) {
+    const near = pageOrder(it.page, doc.numPages).slice(0, it.page ? 3 : 2);
+    for (const n of pageOrder(it.page, doc.numPages).slice(0, MAX_PAGES_SEARCHED)) {
+      let { units, scanned } = await pdfUnits(lib, doc, n);
+      if (stale()) return null;
+      if (scanned) {
+        if (!near.includes(n)) continue;   // OCR is slow: only the pages Gemini pointed at
+        setStatus("loading", `Reading page ${n} (it's a scan)…`);
+        units = await cachedOcr(`${file.name}:${file.size}:${n}`, langs, async () => {
+          const r = await renderPdfPage(doc, n, 1000);
+          return ocrUnits(r.canvas, langs, r.k);
+        });
+        if (stale()) return null;
+      }
+      const index = buildIndex(units);
+      const hit = find(index, it.quote, { min: scanned ? 0.6 : 0.75 });
+      if (hit) return { page: n, exact: hit.exact, boxes: rects(index, hit).map((b) => ({ ...b, active: it.active })) };
     }
-    const index = buildIndex(units);
-    const hit = find(index, ev.quote, { min: scanned ? 0.6 : 0.75 });
-    if (hit) { found = { page: n, boxes: rects(index, hit), exact: hit.exact }; break; }
+    return null;
   }
 
-  let current = found ? found.page : ev.page >= 1 && ev.page <= doc.numPages ? ev.page : 1;
+  setStatus("loading", "Looking for the passage…");
+  const active = items.find((it) => it.active) || items[0];
+  const found = new Map();
+  for (const it of [active, ...items.filter((x) => x !== active)]) {
+    found.set(it, await locate(it));
+    if (stale()) return;
+  }
+  const af = found.get(active);
+  let current = af ? af.page : active.page >= 1 && active.page <= doc.numPages ? active.page : 1;
+  const boxesOn = (n) => [...found.values()].filter((f) => f && f.page === n).flatMap((f) => f.boxes);
   const first = await doc.getPage(current);
   const natural = first.getViewport({ scale: 1 }).width * (4 / 3);   // PDF points to CSS px: printed size
   let drawing = 0, scroll = null;
@@ -373,7 +412,7 @@ async function pdfView(view, file, ev, setStatus, stale) {
       const my = ++drawing;
       const r = await renderPdfPage(doc, current, width);
       if (stale() || my !== drawing) return resolve();
-      const st = stage(r.canvas, r.w, r.h, found && found.page === current ? found.boxes : [], width);
+      const st = stage(r.canvas, r.w, r.h, boxesOn(current), width);
       pageN.textContent = `Page ${current} of ${doc.numPages}`;
       prevBtn.disabled = current <= 1;
       nextBtn.disabled = current >= doc.numPages;
@@ -391,12 +430,11 @@ async function pdfView(view, file, ev, setStatus, stale) {
   });
   await shown;
   if (stale()) return;
-  // Gemini's page numbers can be off (or count a cover page): say so when the quote was elsewhere.
-  setStatus(found ? (found.exact ? "found" : "close") : "missing",
-    found && ev.page && found.page !== ev.page ? `It's on page ${found.page}.` : "");
+  // Gemini's page numbers can be off (or count a cover page): say so when the passage was elsewhere.
+  setStatus(statusOf(af), af && active.page && af.page !== active.page ? `It's on page ${af.page}.` : "");
 }
 
-async function imageView(view, file, ev, setStatus, stale) {
+async function imageView(view, file, items, setStatus, stale) {
   setStatus("loading", "Opening the image…");
   let bitmap;
   try {
@@ -427,7 +465,7 @@ async function imageView(view, file, ev, setStatus, stale) {
   const zoom = zoomer(natural, () => Math.max(240, (scroll?.clientWidth || 480) - 2), draw);
   scroll = frame(view, zoom.tools);
   zoom.start();
-  const langs = langsFor(ev.quote);
+  const langs = langsFor(items.map((it) => it.quote).join(" "));
   onOcrProgress = (m) => {
     if (stale() || m.status !== "recognizing text") return;
     setStatus("loading", `Reading the image… ${Math.round((m.progress || 0) * 100)}%`);
@@ -436,10 +474,14 @@ async function imageView(view, file, ev, setStatus, stale) {
   const units = await cachedOcr(file, langs, () => ocrUnits(canvas, langs));
   if (stale()) return;
   const index = buildIndex(units);
-  const hit = find(index, ev.quote, { min: 0.6 });
-  boxes = hit ? rects(index, hit) : [];
+  let activeHit = null;
+  boxes = items.flatMap((it) => {
+    const hit = find(index, it.quote, { min: 0.6 });
+    if (it.active) activeHit = hit;
+    return hit ? rects(index, hit).map((b) => ({ ...b, active: it.active })) : [];
+  });
   draw(zoom.width());
-  setStatus(hit ? (hit.exact ? "found" : "close") : "missing");
+  setStatus(statusOf(activeHit));
 }
 
 // ---- the panel content ------------------------------------------------------------------
@@ -448,80 +490,101 @@ let run = 0;
 const STATUS = {
   found: "Highlighted where it appears.",
   close: "Closest match highlighted: the wording differs slightly, so read it carefully.",
-  missing: "Couldn't pinpoint this in the document. Check the quote above against the source.",
+  missing: "Couldn't pinpoint this passage in the document. Check it against the source yourself.",
+  idle: "",
 };
 
 /**
- * Fill `host` with the source of one field. `res` is evidence.resolve()'s result.
- * `onAddFile(file)` is called when the user adds a missing file back.
+ * Fill `host` with where one field came from: every passage Gemini based it on (a list to
+ * pick from), and the picked one shown in its file with the field's other passages too.
+ * `res` is evidence.resolve()'s result. `onAddFile(file)` is called when the user adds a
+ * missing file back.
  */
-export async function show(host, { path, res, draft, onAddFile }) {
-  const my = ++run;
-  const stale = () => my !== run || !host.isConnected;
+export async function show(host, { res, draft, onAddFile }) {
+  run++;
   const ev = res?.ev;
-  const status = h("p", { class: "src-status", role: "status" });
-  const setStatus = (state, text = "") => {
-    if (stale()) return;
-    status.className = `src-status is-${state}`;
-    status.replaceChildren(state === "loading" ? h("span", { class: "spinner", "aria-hidden": "true" }) : "",
-      [STATUS[state], text].filter(Boolean).join(" "));
-  };
-
   if (!ev) {
     host.replaceChildren(h("div", { class: "src-empty" }, ic("info"), h("p", {}, res?.why === "added"
       ? "This point was added or rewritten after extraction, so there's no source to show."
-      : "Gemini didn't quote a source for this value. It may be inferred, a default, or not in the brief: check it yourself.")));
+      : "Gemini didn't point to a source for this value. It may be a default or not in the brief: check it yourself.")));
     return;
   }
 
-  const src = sourceOf(draft, ev);
+  const passages = passagesOf(ev);
   const k = kept(draft);
-  const where = [src?.name || `Source ${ev.source}`, ev.page && src?.kind === "pdf" ? `page ${ev.page}` : ""]
-    .filter(Boolean).join(" · ");
-  const copyBtn = h("button", { type: "button", class: "btn btn-sm btn-ghost", onclick: async (e) => {
-    const btn = e.currentTarget;
-    if (await copyText(ev.quote)) flashDone(btn, "Copied");
-  } }, ic("copy"), "Copy quote");
+  const status = h("p", { class: "src-status", role: "status" });
   const view = h("div", { class: "src-view" });
+  const picks = [];
+  const cards = passages.map((p, i) => {
+    const src = sourceOf(draft, p);
+    const where = [src?.name || `Source ${p.source}`, p.page && src?.kind === "pdf" ? `page ${p.page}` : ""]
+      .filter(Boolean).join(" · ");
+    const pick = h("button", { type: "button", class: "src-pick", "aria-pressed": "false", onclick: () => select(i) },
+      h("span", { class: "src-where" }, ic("file"), where),
+      h("span", { class: "src-q", dir: "auto" }, `“${p.quote}”`));
+    picks.push(pick);
+    const copy = h("button", { type: "button", class: "icon-btn src-copy", "aria-label": "Copy this passage", title: "Copy",
+      onclick: async (e) => { const btn = e.currentTarget; if (await copyText(p.quote)) flashDone(btn, ""); } }, ic("copy"));
+    return h("li", { class: "src-passage" }, pick, copy);
+  });
   host.replaceChildren(
-    h("figure", { class: "src-quote" },
-      h("figcaption", {}, ic("file"), where),
-      h("blockquote", { dir: "auto" }, `“${ev.quote}”`),
-      copyBtn),
+    h("p", { class: "src-lead" }, passages.length > 1
+      ? `Based on ${passages.length} passages in the brief. Pick one to see it in place:`
+      : "Based on this passage in the brief:"),
+    h("ol", { class: "src-passages" }, cards),
     res.edited ? h("p", { class: "hint src-edited" }, "You've edited this value since. Gemini extracted: ",
       h("b", {}, res.extracted || "(empty)")) : "",
     status, view);
 
-  const file = src && k?.files.get(src.name);
-  const text = src?.kind === "typed" ? k?.typed : src ? k?.texts[src.index] : null;
-  try {
-    if (src?.kind === "pdf" && file) await pdfView(view, file, ev, setStatus, stale);
-    else if (src?.kind === "image" && file) await imageView(view, file, ev, setStatus, stale);
-    else if (text) {
-      textView(view, text, ev.quote, setStatus);
-      if (src.truncated && status.classList.contains("is-missing")) {
-        status.append(" This file was long, so only its first part is shown here.");
+  async function select(i) {
+    const my = ++run;
+    const stale = () => my !== run || !host.isConnected;
+    const setStatus = (state, text = "") => {
+      if (stale()) return;
+      status.className = `src-status is-${state}`;
+      status.replaceChildren(state === "loading" ? h("span", { class: "spinner", "aria-hidden": "true" }) : "",
+        [STATUS[state], text].filter(Boolean).join(" "));
+    };
+    picks.forEach((b, j) => b.setAttribute("aria-pressed", String(i === j)));
+    const p = passages[i];
+    const src = sourceOf(draft, p);
+    // This field's passages in the same file, highlighted together.
+    const items = passages.filter((q) => q.source === p.source).map((q) => ({ quote: q.quote, page: q.page, active: q === p }));
+    const file = src && k?.files.get(src.name);
+    const text = src?.kind === "typed" ? k?.typed : src ? k?.texts[src.index] : null;
+    try {
+      if (src?.kind === "pdf" && file) await pdfView(view, file, items, setStatus, stale);
+      else if (src?.kind === "image" && file) await imageView(view, file, items, setStatus, stale);
+      else if (text) {
+        textView(view, text, items, setStatus);
+        if (src.truncated && status.classList.contains("is-missing")) {
+          status.append(" This file was long, so only its first part is shown here.");
+        }
+      } else if (src && (src.kind === "pdf" || src.kind === "image")) {
+        setStatus("idle");
+        const input = h("input", { type: "file", hidden: "", accept: src.kind === "pdf" ? ".pdf,application/pdf" : "image/*",
+          onchange: () => input.files[0] && onAddFile?.(input.files[0]) });
+        view.replaceChildren(h("div", { class: "src-empty" }, ic("file"),
+          h("p", {}, `The page was reloaded, so “${src.name}” isn't open any more. Add it again to see the passage in place.`),
+          h("button", { type: "button", class: "btn btn-sm btn-tonal", onclick: () => input.click() }, ic("plus"), `Add “${src.name}”`),
+          input));
+      } else if (src && (src.kind === "audio" || src.kind === "video")) {
+        setStatus("idle");
+        view.replaceChildren(h("p", { class: "hint" }, `Gemini ${src.kind === "audio" ? "listened to" : "watched"} “${src.name}”, so there's no page to highlight. The passage above is what it heard.`));
+      } else {
+        setStatus("idle");
+        view.replaceChildren(h("p", { class: "hint" }, "The text of this file is only kept until the page reloads. The passage above is what Gemini read."));
       }
-    } else if (src && (src.kind === "pdf" || src.kind === "image")) {
-      const input = h("input", { type: "file", hidden: "", accept: src.kind === "pdf" ? ".pdf,application/pdf" : "image/*",
-        onchange: () => input.files[0] && onAddFile?.(input.files[0]) });
-      view.replaceChildren(h("div", { class: "src-empty" }, ic("file"),
-        h("p", {}, `The page was reloaded, so “${src.name}” isn't open any more. Add it again to see the quote in place.`),
-        h("button", { type: "button", class: "btn btn-sm btn-tonal", onclick: () => input.click() }, ic("plus"), `Add “${src.name}”`),
-        input));
-    } else if (src && (src.kind === "audio" || src.kind === "video")) {
-      view.replaceChildren(h("p", { class: "hint" }, `Gemini ${src.kind === "audio" ? "listened to" : "watched"} “${src.name}”, so there's no page to highlight. The quote above is what it heard.`));
-    } else if (src) {
-      view.replaceChildren(h("p", { class: "hint" }, "The text of this file is only kept until the page reloads. The quote above is what Gemini read."));
+      if (src?.hasBlobs && status.classList.contains("is-missing")) {
+        status.append(" It may be in an image or attachment inside this file.");
+      }
+    } catch (err) {
+      if (stale()) return;
+      setStatus("missing");
+      view.replaceChildren(h("p", { class: "form-error" }, err?.message || "Couldn't open this file."));
     }
-    if (src?.hasBlobs && status.classList.contains("is-missing")) {
-      status.append(" It may be in an image or attachment inside this file.");
-    }
-  } catch (err) {
-    if (stale()) return;
-    setStatus("missing");
-    view.replaceChildren(h("p", { class: "form-error" }, err?.message || "Couldn't open this file."));
   }
+  await select(0);
 }
 
 /** Stop showing anything (panel closed): late results are ignored. */

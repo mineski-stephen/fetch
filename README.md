@@ -220,11 +220,7 @@ project-brief/                     ← the repository root = the website root
 │   ├── check-proxy.mjs            GET / of both services: version, headers (`npm run check:proxy`)
 │   ├── check-shell.mjs            Import map, shared files, watchdog, syntax, secrets (`npm run check:shell`)
 │   ├── e2e.mjs                    Every write, on a TEST COPY of the table only (`npm run check:e2e`)
-│   ├── lark-node.mjs              Direct Lark access for those scripts (app token from tools/.env)
-│   ├── preview-shim.js            `?preview` mode: answers the services from the sample data
-│   ├── preview-fixture.json       Made-up sample briefs and a canned extraction (no real data)
-│   ├── preview-sample.pdf         A two-page sample brief holding the canned extraction's quotes ("Check sources")
-│   └── make-preview-fixture.mjs   Regenerates that file (`npm run preview:fixture`)
+│   └── lark-node.mjs              Direct Lark access for those scripts (app token from tools/.env)
 └── tools/
     ├── setup_lark_table.py        Creates or repairs the Lark table's columns (re-runnable, dry run by default)
     ├── export-spec.mjs            Prints the column list from js/schema.js for the setup script
@@ -508,10 +504,14 @@ variable (see `tech/lark-proxy/README.md`).
    change *budget type* or *submission type*, and the date chip to pick the
    *due date*.
    **Check sources** (above the document) pauses editing and underlines every
-   value Gemini quoted a source for. Click one to see the passage it came from,
-   highlighted in your own file (PDF page, screenshot, Word/Excel/e-mail text,
-   or what you typed). Use it to double-check budgets, dates and KPIs. A
-   dimmed value has no quote: it was inferred, a default, or added by you.
+   value and bullet Gemini can point back to. Click one to see the passages of
+   the brief it was based on, even when the summary words it differently or
+   combines several of them (up to three, e.g. two sentences on different
+   pages). Each is highlighted in your own file (PDF page, screenshot,
+   Word/Excel/e-mail text, or what you typed); pick a passage to jump to it.
+   Use it to see where each point came from in a long brief, and to
+   double-check budgets, dates and KPIs. A dimmed value has no passage: it's a
+   default, or you added it.
    Click **Done checking** (or press Esc) to edit again. It works on a new
    brief until you save it; filed briefs are assumed checked. After a page
    reload the quote still shows, and **Add “file” again** brings the
@@ -587,11 +587,6 @@ the tab session (`?reset` clears them) and only work on a local page; a red
 static server for Claude Code's preview. Ports: 9123 Polaris, 9124 Fetch, 8000 the Gemini
 proxy locally, 8001 the Lark proxy locally.
 
-**Preview mode.** `http://127.0.0.1:9124/?preview` runs the page on made-up sample briefs
-with a fake login, a canned extraction and everything in `tests/preview-fixture.json`.
-Saves, Done and Delete only change that tab's memory; nothing is sent anywhere. A badge says so.
-Use a separate tab. It is how screens are checked without a Lark login.
-
 ---
 
 ## Testing
@@ -603,7 +598,6 @@ npm run check:proxy      # GET / on both hosted services: version >= min, header
 npm run check:live       # read-only against the live table: columns, and every payload the page would write
 npm run check:e2e        # every write, on a TEST COPY of the table only (see below)
 npm run test:proxy       # the Gemini proxy's own unit tests (offline, Gemini mocked)
-npm run preview:fixture  # regenerates the sample data for ?preview
 ```
 
 `check:live` and `check:e2e` need `LARK_APP_ID` and `LARK_APP_SECRET` in
@@ -762,12 +756,12 @@ changed and every other row is untouched.
   Latin, Greek and Cyrillic but not CJK. Since summaries are written in
   English this rarely matters, but Korean or Chinese proper nouns would not
   show in the PDF (they do show on screen and in the chat text).
-- **Check sources** shows Gemini's own quote, then finds it in the file. A
-  reworded quote is highlighted as a "closest match"; one it can't find says so
-  rather than guessing. Scanned PDFs and screenshots are read with OCR in the
+- **Check sources** shows the passages Gemini says it used, then finds each in
+  the file. A slightly misquoted passage is highlighted as a "closest match"; one
+  it can't find says so rather than guessing. Scanned PDFs and screenshots are read with OCR in the
   browser (a ~10 MB download the first time, a few seconds per page; only the
-  pages Gemini named are read). Quotes add roughly 1k output tokens (a few
-  seconds) to each extraction.
+  pages Gemini named are read). The passages add roughly 2-4k output tokens
+  to each extraction (about 5-15 seconds, depending on the brief's length).
 - **Legacy formats** (`.doc`, `.ppt`, `.xls`, Outlook `.msg`) must be saved
   as PDF or a modern Office format first; the page tells the user how.
 - **History is rendered from JSON**: see [The Lark table](#the-lark-table)
@@ -781,8 +775,9 @@ changed and every other row is untouched.
 | ------- | ---------- |
 | A yellow bar: "**Setup needed:** add your Gemini API key to start extracting briefs." | The extraction service has no shared key and you haven't added yours. Click the bar and paste your key in Settings. |
 | No **Check sources** button | The brief was extracted by a service older than 1.6.0, or it's a filed brief (the button is for new drafts only). |
+| Check sources shows only one passage per value | The extraction service is 1.6.0. Deploy 1.7.0 (`render/gemini-pdf`) for several passages per value, and for notes. |
 | Check sources: "Couldn't load the document viewer" | The page couldn't reach `cdn.jsdelivr.net` (offline, or a blocker). Allow it and click the field again; the quote itself always shows. |
-| Check sources: "Couldn't pinpoint this in the document" | Gemini's quote isn't word-for-word in the file (or is in an image inside a Word file or e-mail). Read the quote and check that part of the brief yourself. |
+| Check sources: "Couldn't pinpoint this passage in the document" | Gemini's quote isn't word-for-word in the file (or is in an image inside a Word file or e-mail). Read the quote and check that part of the brief yourself. |
 | "Your Gemini key needs attention" | Google rejected your key. Re-copy it from Google AI Studio into Settings and click **Test key**. |
 | "Gemini usage limit reached" | Your key hit its free-tier limit. Wait a bit, or use another key. |
 | "Gemini is overloaded right now. Please try again in a minute." | Temporary Gemini capacity issue. The page retries once on its own ("Retrying automatically in 20s…"); try again in a minute. |
@@ -795,7 +790,6 @@ changed and every other row is untouched.
 | "A user key fails with a network error right after an update" (or "Out of date" above) | The extraction service still runs an old version. Redeploy it on Render. |
 | "Setup needed" even though a shared key is set on Render | The service doesn't see the key. Check `shared_key` at the service's root URL, then save the variable with **Save, rebuild, and deploy**. |
 | A red **Override** badge in the top bar | A test address or table is active (Settings → Advanced, or a `?gemini=` / `?lark=` link). Hover for what. Clear it in Settings, or open the page with `?reset`. |
-| A red "Preview mode: sample data, nothing is sent anywhere" badge | You opened `?preview`. It shows made-up data; nothing is saved. Open the normal address to use Fetch. |
 | A **Test copy** badge next to the name | `APP.env` is `"test"`: Fetch is using the test copy of the table. Set it back to `"live"`. |
 | Login screen: "This address (…) isn't registered on the Lark app, so login would stop on a Lark error page." (or Lark's page shows error **20029**) | Add exactly that address (with the trailing `/`, `127.0.0.1` not `localhost` for local use) under *Security Settings → Redirect URLs* on the Lark app, then reload. |
 | "Your Lark account isn't allowed to use this app yet. Ask the app admin to add you." (20010) | Add the person to the Lark app's availability range (*Version Management & Release → Availability*). |
