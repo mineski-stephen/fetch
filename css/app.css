@@ -158,6 +158,7 @@ body.dragging .dz-drop { opacity: 1; }
 .loader.is-waking .tag { display: none; }
 .loader.is-waking .ring { animation: ringspin 1.1s linear infinite; }
 .loader.is-waking .eta-text { visibility: hidden; }
+.loader.is-overtime .ring { animation: ringspin 1.6s linear infinite; }   /* past the estimate: spinning, counting up */
 .loader.is-done .dog { animation: pop .5s var(--ease); }
 
 .eta { position: relative; width: 112px; height: 112px; margin: 6px auto 12px; }
@@ -386,7 +387,6 @@ div.ed { display: block; }
 /* ---- settings ---------------------------------------------------------------------- */
 .set-help a { font-weight: 700; }
 #toggleKey.is-on { background: var(--brand-soft); }
-.account-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 /* ---- all briefs: Fetch's extras on the shared record cards ---------------------------- */
 /* long messages wrap beside their icon or spinner */
 .list-status { align-items: flex-start; }
@@ -415,6 +415,7 @@ div.ed { display: block; }
 
 @media (prefers-reduced-motion: reduce) {
   .fetch-art { display: none; }   /* the dog, ground, streaks and tags; the ETA ring stays */
+  .loader.is-overtime .ring { animation-duration: 4s; }
 }
 
 /* ---- responsive: tablet layout and the phone bottom action bar ------------------------- */

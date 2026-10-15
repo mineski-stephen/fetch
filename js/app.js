@@ -152,7 +152,7 @@ function renderHeader() {
   $("#sessionLeft").textContent = settingsView.fmtLeft(left);
   pill.classList.toggle("is-low", left < LOW_SESSION_MS);
   pill.title = `Your login lasts until ${settingsView.fmtTime(auth.endsAt())}`;
-  pill.setAttribute("aria-label", `Logged in for ${settingsView.fmtLeft(left)} more`);
+  pill.setAttribute("aria-label", `Logged in for ${settingsView.fmtLeft(left)} more, until ${settingsView.fmtTime(auth.endsAt())}`);
   const u = auth.user() || {};
   const img = $("#avatar");
   img.hidden = !u.avatar;
@@ -403,7 +403,7 @@ function setRing(p) {
 }
 
 function resetLoader() {
-  $("#loader").classList.remove("is-error", "is-done", "is-waking");
+  $("#loader").classList.remove("is-error", "is-done", "is-waking", "is-overtime");
   $("#loaderError").hidden = true;
   $("#errSettingsBtn").hidden = true;
   $('#steps [data-step="wake"]').hidden = true;
@@ -446,23 +446,38 @@ function tick() {
     const spent = (job.uploadedAt - job.t0) / 1000;
     const r = (t - spent) / Math.max(6, est.total - spent);
     p = share + (1 - share) * (r < 1 ? 0.9 * r : 0.9 + 0.08 * (1 - Math.exp(-(r - 1) * 2)));
-    step = r < 0.3 ? 1 : r < 0.75 ? 2 : 3;
-    label = r > 1.25 ? "Still working - complex briefs take a little longer…" : STAGES[step];
+    // Gemini reads, extracts and formats in one call, so stay on "Extracting" until it answers;
+    // "Formatting" ticks off with the result instead of sitting there for a minute.
+    step = r < 0.3 ? 1 : 2;
+    label = STAGES[step];
   }
-  setRing(p);
-  setStep(step);
-  $("#stageLabel").textContent = label;
 
   const left = Math.ceil(est.total - t);
-  if (left > 2) {
-    $("#etaNumber").textContent = `~${left}`;
-    $("#etaUnit").textContent = "sec";
-    $("#etaLabel").textContent = left > 60 ? `About ${Math.round(left / 60 * 2) / 2} min left` : `About ${left} seconds left`;
-  } else {
-    $("#etaNumber").textContent = "…";
-    $("#etaUnit").textContent = "almost";
-    $("#etaLabel").textContent = left > -20 ? "Almost done…" : "Gemini is taking longer than usual. Hang tight - it'll retry automatically if it's busy.";
+  const over = !!job.uploadedAt && left <= 2;
+  $("#loader").classList.toggle("is-overtime", over);
+  setRing(over ? 0.25 : p);   // past the estimate the ring spins: still alive, no fake percentage
+  setStep(step);
+  if (!over) {
+    $("#stageLabel").textContent = label;
+    $("#etaNumber").textContent = left > 2 ? `~${left}` : "…";
+    $("#etaUnit").textContent = left > 2 ? "sec" : "";
+    $("#etaLabel").textContent = left > 60 ? `About ${Math.round(left / 60 * 2) / 2} min left` : `About ${Math.max(left, 1)} seconds left`;
+    return;
   }
+
+  // Past the estimate: count up instead of sitting on "almost", and say why it's slow.
+  const secs = Math.floor(t);
+  $("#etaNumber").textContent = secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
+  $("#etaUnit").textContent = "elapsed";
+  const [head, sub] = -left < 15
+    ? ["Almost there…", "Taking a few seconds longer than estimated."]
+    : t < 60
+      ? ["Still working - complex briefs take a little longer…", "Gemini is still writing the summary. Long or image-heavy briefs can take a minute or more."]
+      : t < 150
+        ? ["Still working - Gemini may be busy right now", "If Gemini is overloaded, Fetch retries and switches to a backup model by itself. This can take up to 3 minutes - no need to start over."]
+        : ["Taking much longer than usual", "Still waiting on Gemini. You can keep waiting (it gives up by itself after about 5 minutes), or cancel and try again later."];
+  $("#stageLabel").textContent = head;
+  $("#etaLabel").textContent = sub;
 }
 
 async function startExtraction() {
@@ -539,6 +554,7 @@ async function startExtraction() {
     setRing(1);
     setStep(4, true);
     $("#stageLabel").textContent = "Done!";
+    $("#loader").classList.remove("is-overtime");
     $("#loader").classList.add("is-done");
     autoRetry.used = false;
     const model = B.normalize(res.brief);
@@ -579,6 +595,7 @@ function stopAutoRetry() {
 
 function showLoaderError(err) {
   showView("processing");
+  $("#loader").classList.remove("is-overtime");
   $("#loader").classList.add("is-error");
   $("#cancelBtn").hidden = true;
   $("#loaderError").hidden = false;

@@ -433,14 +433,14 @@ unsaved brief next time.
 
 ## Settings
 
-The gear icon in the top bar opens **Settings**. Everything there is saved in
+The gear at the end of the top bar's menu opens **Settings**. Everything there is saved in
 the current browser only.
 
 | Setting | What it does |
 | ------- | ------------ |
-| **Gemini API key** | Your own key from [Google AI Studio](https://aistudio.google.com/apikey). It's sent to the extraction service with each brief (`X-Gemini-Api-Key` header), used once, and never stored there. **Required** when the service has no shared key; the status pill shows *Key needed*, *Using the shared key* or *Using your key*. **Save key** also checks it with Google and shows which Flash-Lite model you'll get; **Test key** re-checks it. |
 | **Account** | Your Lark name and picture, how long the login has left, **Log in again** (a fresh 2 hours) and **Log out**. Settings is the one screen that opens without logging in. |
 | **Appearance** | System (follows the computer), Light or Dark (arrow keys move between them). Saved per browser under `fetch.theme` and applied before the page draws, so there's no flash. |
+| **Gemini API key** | Your own key from [Google AI Studio](https://aistudio.google.com/apikey). It's sent to the extraction service with each brief (`X-Gemini-Api-Key` header), used once, and never stored there. **Required** when the service has no shared key; the status pill shows *Key needed*, *Using the shared key* or *Using your key*. **Save key** also checks it with Google and shows which Flash-Lite model you'll get; **Test key** re-checks it. |
 | **Connections** | Live status of the extraction service (*Awake* / *Waking up…* / *Unreachable*) and Lark (*Connected · N briefs*), with **Wake up** and **Refresh** buttons. |
 | **Advanced: service addresses** | Only on `localhost`. Override the extraction service URL, the Lark proxy URL, or the Lark table (paste the table's link). Empty = the defaults in `js/config.js`. |
 | **This browser** | Clears the unsaved draft and the cached briefs list (keeps your key, theme and login). One click; **Undo** in the toast puts them back. |

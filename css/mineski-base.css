@@ -37,7 +37,7 @@
   --spring: cubic-bezier(.34, 1.56, .64, 1);   /* small delights only: brand mark, pop-in badges */
   --t-fast: .15s; --t: .25s; --t-slow: .5s;
 
-  /* type: the theme may set --font (one family per tool, see references/typography-and-layout.md) */
+  /* type: --font is the family font, Plus Jakarta Sans, in every theme (references/typography-and-layout.md) */
   --font-fallback: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
@@ -45,7 +45,7 @@
   --gutter: 16px;
   --topbar: 60px;
   --maxw: 1200px;
-  --tabs-h: 50px;          /* height of the sticky .tabs strip; offset sticky things below it with this */          /* page width; a wide workspace sets 1600px on <body style> or a class */
+  --tabs-h: 50px;          /* height of the sticky .tabs strip; offset sticky things below it with this */          /* page width of the top bar and every view; never overridden per tool (a side-by-side workspace widens only its own main) */
 
   --toast-err-bg: #3B1619;
 }
@@ -546,6 +546,7 @@ a.callout:hover .go .i { transform: translateX(3px); }
 .account-text { flex: 1 1 220px; min-width: 0; }
 .account-text b { display: block; font-size: 15.5px; }
 .account-text span { font-size: 13.5px; color: var(--muted); }
+.account-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
 /* disclosure: "Advanced: …", "More options" */
 .advanced { border-top: 1px solid var(--line); padding-top: 10px; }

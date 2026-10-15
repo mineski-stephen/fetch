@@ -340,6 +340,15 @@
           <div class="account" id="account"></div>
         </section>
 
+        <section class="card set-card" aria-labelledby="themeTitle">
+          <h2 id="themeTitle">Appearance</h2>
+          <div class="seg" id="themeSeg" role="radiogroup" aria-labelledby="themeTitle">
+            <button type="button" role="radio" data-theme-choice="system"><span class="i" data-icon="monitor" aria-hidden="true"></span> System</button>
+            <button type="button" role="radio" data-theme-choice="light"><span class="i" data-icon="sun" aria-hidden="true"></span> Light</button>
+            <button type="button" role="radio" data-theme-choice="dark"><span class="i" data-icon="moon" aria-hidden="true"></span> Dark</button>
+          </div>
+        </section>
+
         <section class="card set-card" aria-labelledby="keyTitle">
           <div class="set-head">
             <div>
@@ -364,15 +373,6 @@
           <p class="set-help">Get a free key from <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a>. Your key stays in this browser and is sent only to Fetch's extraction service with each brief; it is never stored there. Fetch uses Gemini Flash-Lite, which free keys can use.</p>
         </section>
 
-        <section class="card set-card" aria-labelledby="themeTitle">
-          <h2 id="themeTitle">Appearance</h2>
-          <div class="seg" id="themeSeg" role="radiogroup" aria-labelledby="themeTitle">
-            <button type="button" role="radio" data-theme-choice="system"><span class="i" data-icon="monitor" aria-hidden="true"></span> System</button>
-            <button type="button" role="radio" data-theme-choice="light"><span class="i" data-icon="sun" aria-hidden="true"></span> Light</button>
-            <button type="button" role="radio" data-theme-choice="dark"><span class="i" data-icon="moon" aria-hidden="true"></span> Dark</button>
-          </div>
-        </section>
-
 
         <section class="card set-card" aria-labelledby="connTitle">
           <h2 id="connTitle">Connections</h2>
@@ -380,12 +380,12 @@
             <li>
               <span class="dot" id="geminiDot"></span>
               <span class="status-text"><b>Extraction service</b><span id="geminiStatus">Not checked yet</span></span>
-              <button type="button" class="btn btn-sm btn-tonal" id="wakeGemini">Wake up</button>
+              <button type="button" class="btn btn-sm" id="wakeGemini">Wake up</button>
             </li>
             <li>
               <span class="dot" id="larkDot"></span>
               <span class="status-text"><b>Lark Base</b><span id="larkStatus">Not checked yet</span></span>
-              <button type="button" class="btn btn-sm btn-tonal" id="refreshLark">Refresh</button>
+              <button type="button" class="btn btn-sm" id="refreshLark">Refresh</button>
             </li>
           </ul>
           <details class="advanced" id="advancedBox">

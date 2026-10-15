@@ -8,7 +8,7 @@ import * as settings from "./settings.js";
 import { cfg } from "./settings.js";
 import * as auth from "./auth.js";
 import * as extract from "./extract.js";
-import { $, h, initTheme, toast } from "./ui.js";
+import { $, h, ic, initTheme, toast, fmt } from "./ui.js";
 
 let hooks = {};
 
@@ -17,11 +17,9 @@ function result(el, ok, text) {
   el.className = `set-result${ok === true ? " is-ok" : ok === false ? " is-err" : ""}`;
 }
 
-const fmtTime = (ms) => new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-function fmtLeft(ms) {
-  const m = Math.max(0, Math.round(ms / 60000));
-  return m >= 60 ? `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")} min` : `${m} min`;
-}
+// The family's shared formats ("3:29 PM", "1h 33m"), the same in every tool.
+const fmtTime = fmt.time;
+const fmtLeft = fmt.duration;
 const sessionLine = () => `Logged in until ${fmtTime(auth.endsAt())} · ${fmtLeft(auth.msLeft())} left`;
 
 function paintAccount() {
@@ -35,7 +33,7 @@ function paintAccount() {
       h("div", { class: "account-text" }, h("b", {}, u.name || "Logged in with Lark"), h("span", { id: "accSession" }, sessionLine())),
       h("div", { class: "account-actions" },
         h("button", { type: "button", class: "btn btn-sm", onclick: () => hooks.login?.(location.hash) }, "Log in again"),
-        h("button", { type: "button", class: "btn btn-sm btn-ghost", onclick: () => hooks.logout?.() }, "Log out")));
+        h("button", { type: "button", class: "btn btn-sm btn-ghost", onclick: () => hooks.logout?.() }, ic("logout"), "Log out")));
   } else {
     box.replaceChildren(
       h("div", { class: "account-text" }, h("b", {}, "You're not logged in."), h("span", {}, "Log in with Lark to extract and save briefs. A login lasts about 2 hours.")),

@@ -412,9 +412,9 @@ export const fmt = {
     if (a >= 1e3) return Math.round(v / 1e3) + "K";
     return String(Math.round(v));
   },
-  duration(ms) {
+  duration(ms) {   // "1h 05m", "45m": the one format for login clocks and time left
     const m = Math.max(0, Math.round(ms / 60000));
-    return m >= 60 ? `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m` : `${m} min`;
+    return m >= 60 ? `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m` : `${m}m`;
   },
   relDays(ms) {   // "today", "tomorrow", "in 3 days", "2 days ago"
     const d = Math.round((new Date(ms).setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)) / 864e5);
