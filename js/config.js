@@ -13,7 +13,9 @@
  * options) and switches saving off if one doesn't match, so a renamed column
  * fails loudly instead of writing bad data. The column list lives in schema.js.
  */
-export const APP = { name: "Fetch", key: "fetch", env: "live" };   // env: "live" | "test"
+/* version: bump it with every release and add an entry to CHANGELOG.md (newest first, same number).
+   The top bar shows it beside the name, so people can see at a glance which version they're running. */
+export const APP = { name: "Fetch", key: "fetch", version: "1.0.0", env: "live" };   // env: "live" | "test"
 export const ENV_LABEL = APP.env === "test" ? "Test copy" : "";    // display only, never a gate
 
 export const SERVICES = {   // hosted defaults; `min` and `headers` are checked on every wake

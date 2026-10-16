@@ -129,6 +129,11 @@ kbd { font: 600 .78em inherit; padding: 1px 6px; border: 1px solid var(--line-2)
 .brand-name { font-size: 20px; font-weight: 800; letter-spacing: -.03em; }
 .env { font-size: 11px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; white-space: nowrap;
        padding: 3px 8px; border-radius: var(--r-pill); background: var(--warn-soft); color: var(--warn); }
+/* the running version beside the name ("v1.0.0"), quiet so it never competes with the brand.
+   Filled from APP.version at start-up; stays on small phones, where the name hides. */
+.brand-ver { align-self: flex-end; margin: 0 0 3px -4px; font-size: 11.5px; font-weight: 700; color: var(--muted);
+             font-variant-numeric: tabular-nums; white-space: nowrap; }
+.brand-ver:empty { display: none; }
 .top-right { display: flex; align-items: center; gap: 8px; min-width: 0; }
 
 /* pill navigation in the top bar (2 to 4 destinations) */
@@ -483,8 +488,13 @@ a.callout:hover .go .i { transform: translateX(3px); }
 
 /* tabs under the top bar (a workspace with several lists) */
 .tabs { position: sticky; top: calc(var(--topbar) + 8px); z-index: 20; display: flex; gap: 4px; padding: 4px; margin-bottom: 14px; height: var(--tabs-h);
-        background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow-sm); }
-.tab { flex: 1 1 0; min-width: 0; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+        background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow-sm);
+        overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; }   /* too many to fit: scrolls sideways, never the page */
+.tabs::-webkit-scrollbar { display: none; }
+/* Each tab is as wide as its label and count, plus an equal share of the room
+   left, so the gaps between labels are even whatever the counts are (never
+   equal-width cells: a long label or a 3-digit count would overflow its cell). */
+.tab { flex: 1 0 auto; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
        height: 40px; padding: 0 8px; border-radius: 12px; text-decoration: none; white-space: nowrap;
        color: var(--muted); font-size: 14px; font-weight: 700; transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease); }
 .tab:hover { color: var(--ink); }
@@ -743,10 +753,7 @@ dialog .toasts { top: calc(14px + env(safe-area-inset-top)); bottom: auto; }   /
   .loader.big { padding: 24px 18px 18px; }
 }
 @media (max-width: 560px) {
-  /* many tabs don't fit a phone: the strip scrolls sideways (the page itself never does) */
-  .tabs { overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; }
-  .tabs::-webkit-scrollbar { display: none; }
-  .tab { flex: 1 0 auto; padding: 0 10px; }
+  .tab { padding: 0 10px; }
 }
 @media (max-width: 420px) {
   .brand-name { display: none; }      /* the mark carries the brand on small phones */

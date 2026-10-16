@@ -69,5 +69,14 @@ const own = modules.filter((f) => !["ui.js", "icons.js"].includes(f));   // the 
 if (/\u2014/.test(html + own.map((f) => read(`js/${f}`)).join(""))) fail("an em dash in the page or its scripts (house voice: hyphen, colon or a new sentence)");
 if (!section) ok("none found");
 
+begin("Version");
+const version = (read("js/config.js").match(/\bversion:\s*"(\d+\.\d+\.\d+)"/) || [])[1];
+const logged = existsSync(root + "CHANGELOG.md") && (read("CHANGELOG.md").match(/^## (\d+\.\d+\.\d+)/m) || [])[1];
+if (!version) fail("APP.version (x.y.z) isn't in js/config.js");
+else if (!logged) fail("CHANGELOG.md has no \"## x.y.z\" entry");
+else if (logged !== version) fail(`CHANGELOG.md's newest entry is ${logged}, but APP.version is ${version}`);
+if (!/id="appVersion"/.test(html)) fail("the top bar doesn't show the version (#appVersion)");
+if (!section) ok(`APP.version ${version} matches CHANGELOG.md and is shown in the top bar`);
+
 console.log(failures ? `\n${failures} problem(s).` : "\nShell checks passed ✓");
 process.exitCode = failures ? 1 : 0;

@@ -180,6 +180,8 @@ function initials(name) {
 }
 
 function renderHeader() {
+  $("#appVersion").textContent = `v${APP.version}`;
+  $("#appVersion").title = `${APP.name} version ${APP.version}`;
   const overrides = cfg().overrides;   // the red badge, whenever anything is overridden
   $("#envBadge").hidden = !ENV_LABEL;
   $("#envBadge").textContent = ENV_LABEL;

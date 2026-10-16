@@ -180,12 +180,13 @@ app secret on `/authen/v2/oauth/token`). The hosted one has it.
 ```
 project-brief/                     ← the repository root = the website root
 ├── index.html                     ★ Page shell: compose, loader, document, history, settings, dialog
+├── CHANGELOG.md                   ★ Every change and version update, newest first (top entry = APP.version)
 ├── css/
 │   ├── theme.css                  Fetch's colors, light and dark (copied unedited from the Mineski design language)
 │   ├── mineski-base.css           Every shared component (copied unedited; never edit it here)
 │   └── app.css                    Fetch's own parts on tokens: drop zone, loader dog, the white paper, phone bar
 ├── js/                            ES modules, loaded through the import map in index.html (every one is listed there)
-│   ├── config.js                  ★ Everything a maintainer changes: APP.env, services, Lark app, table links, rules
+│   ├── config.js                  ★ Everything a maintainer changes: APP.version, APP.env, services, Lark app, table links, rules
 │   ├── schema.js                  ★ The Lark table's columns (one list), the load-time check, what blocks a write
 │   ├── app.js                     Routing and screens (incl. Next steps & Attachments cards)
 │   ├── net.js                     Services (wake, status, version check, ad-blocker detection) and the Lark call
@@ -761,8 +762,9 @@ changed and every other row is untouched.
 - **One obvious action per screen**: drop or type → extract → review → save.
 - **Honest waiting**: a self-calibrating estimate (it learns from past runs in
   this browser), real upload progress and staged steps. If the service is
-  asleep, a separate *Waking up the service* step with its own countdown runs
-  before anything is uploaded. The loader art is the Fetch dog, running to
+  asleep, a separate *Waking up the service* step runs before anything is
+  uploaded, with "This can take up to a minute." and no countdown (a countdown
+  that hits zero and keeps going reads as broken). The loader art is the Fetch dog, running to
   fetch your brief.
 - **Edit in place**: the document *is* the editor, with hover highlights,
   word-processor keys, and click-to-pick chips for fixed choices.
@@ -914,11 +916,18 @@ changed and every other row is untouched.
 | "That row isn't in Lark any more. The list refreshed." | Someone deleted the brief in Lark. |
 | "Lark is getting too many requests. Wait a moment and try again." | Lark's rate limit. Wait a moment and try again. |
 | A file is rejected | The message says why: e.g. an old `.doc`/`.ppt` (save as PDF), a ZIP (unzip it), or over 50 MB in total. |
-| Users see an old version after an update | Only `index.html` itself could be stale (scripts and styles always load fresh). Reload the page; hosts normally revalidate HTML on every visit. |
+| Users see an old version after an update (the number beside "Fetch" in the top bar is lower than the newest entry in `CHANGELOG.md`) | Only `index.html` itself could be stale (scripts and styles always load fresh). Reload the page; hosts normally revalidate HTML on every visit. |
 | "Fetch couldn't start. Reload the page. If it keeps happening, open it from its web address (not a saved file)." | A module failed to load (a flaky connection or a half-finished deploy), or the page was opened from a file. Reload; open it from its web address. After a deploy, `npm run check:shell` catches a module missing from the import map. |
 
 ---
 ## Maintenance recipes
+
+**Release a change.** Every change people will see gets a version. Bump `APP.version` in
+`js/config.js` (patch for a fix, minor for something new, major when people must relearn something or old
+links or data stop working), add an entry with the same number and the date at the top of `CHANGELOG.md`
+saying what changed in the team's words, and run `npm run check:shell` (it fails if the two numbers
+differ). The top bar shows the version beside the name, so people can check at a glance that they have the
+latest one; if they don't, they reload the page.
 
 **Tune the wording or rules**: edit `render/gemini-pdf/prompt.md` and redeploy
 the proxy. No page changes needed. The *# Evidence* section there decides what
