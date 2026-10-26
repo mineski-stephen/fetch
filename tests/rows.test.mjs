@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as B from "../js/brief.js";
-import { FIELD, fromRecord, briefCells, extraCells, newRowCells, changedCells, toFields, sigs } from "../js/rows.js";
+import { FIELD, fromRecord, briefCells, extraCells, newRowCells, changedCells, toFields, sigs, downloadRequest, downloadLink } from "../js/rows.js";
 import { plain, clean, isBlank, canon, sameCell, cellSig, matchOption, toLarkDay, fromLarkDay } from "../js/cells.js";
 import { liveFields, fakeLark, TABLE } from "./fake-lark.mjs";
 import { optionsOf } from "../js/schema.js";
@@ -218,4 +218,26 @@ test("cells: Lark's date-only cells round-trip in the Base's zone", () => {
   assert.equal(toLarkDay("2026-02-30", 480), null);
   assert.equal(toLarkDay("", 480), null);
   assert.equal(fromLarkDay(undefined, 480), "");
+});
+
+test("an attachment's download request uses Lark's own tmp_url, never another address", () => {
+  const api = "https://open.larksuite.com/open-apis/drive/v1/medias/batch_get_tmp_download_url";
+  const own = `${api}?file_tokens=t1&extra=%7B%22bitablePerm%22%3A%7B%7D%7D`;
+  const fields = { [FIELD.attachments]: [
+    { file_token: "t1", name: "a.pdf", tmp_url: own },
+    { file_token: "t2", name: "b.pdf", tmp_url: "https://evil.example/steal?file_tokens=t2" },
+  ] };
+  assert.equal(downloadRequest(fields, "t1", "tblX"), own);
+  const built = downloadRequest(fields, "t2", "tblX");
+  assert.ok(built.startsWith(`${api}?file_tokens=t2&extra=`));
+  assert.match(decodeURIComponent(built), /"tableId":"tblX"/);
+  assert.equal(downloadRequest(fields, "gone", "tblX"), null);
+  assert.equal(downloadRequest({}, "t1", "tblX"), null);
+});
+
+test("the download link is read from Lark's answer, https only", () => {
+  const json = { code: 0, data: { tmp_download_urls: [{ file_token: "t1", tmp_download_url: "https://internal-api-drive-stream.larksuite.com/x" }] } };
+  assert.equal(downloadLink(json, "t1"), "https://internal-api-drive-stream.larksuite.com/x");
+  assert.equal(downloadLink({ data: { tmp_download_urls: [{ file_token: "t1", tmp_download_url: "javascript:alert(1)" }] } }, "t1"), "");
+  assert.equal(downloadLink({ data: {} }, "t1"), "");
 });

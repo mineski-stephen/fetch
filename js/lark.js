@@ -13,7 +13,8 @@ import { lark, larkUpload, LarkError } from "./net.js";
 import { cfg } from "./settings.js";
 import { LARK } from "./config.js";
 import { WriteBlocked } from "./errors.js";
-import { newClientToken } from "./tables.js";
+import { newClientToken, getRecord } from "./tables.js";
+import { downloadRequest, downloadLink } from "./rows.js";
 import * as ops from "./ops.js";
 
 /** The live check of the table's columns: { checked, problems, partial, missing, options, fields }. */
@@ -81,4 +82,19 @@ async function uploadFile(file) {
   return json.data.file_token;
 }
 
-export { schema, listAll, create, update, setDone, remove, uploadFile, newClientToken as uuid };
+/**
+ * A temporary link (valid about a day) to download one attachment of a filed brief. The row is
+ * read again first: Lark's cell says how to ask for the link (and whether the file is still there).
+ */
+async function attachmentLink(recordId, fileToken) {
+  const t = table();
+  const rec = await getRecord(call, t, recordId);
+  const url = downloadRequest(rec.fields, fileToken, t.table);
+  if (!url) throw new LarkError("gone", { json: { code: 404, msg: "This file is no longer attached to the brief in Lark. Reload the brief." } });
+  const json = await call("GET", url, null, { read: true });
+  const link = downloadLink(json, fileToken);
+  if (!link) throw new LarkError("Lark error", { json });
+  return link;
+}
+
+export { schema, listAll, create, update, setDone, remove, uploadFile, attachmentLink, newClientToken as uuid };

@@ -808,7 +808,10 @@ function renderExtras() {
     const tooBig = !a.token && a.size > max;
     return h("li", { class: `att${tooBig ? " is-warn" : ""}` },
       ic(tooBig ? "alert" : "file"),
-      h("span", { class: "att-info" }, h("span", { class: "att-name", title: a.name }, a.name),
+      h("span", { class: "att-info" }, a.token || a.file
+        ? h("button", { type: "button", class: "att-name att-open", "data-open": String(i),
+          title: a.token ? `Download ${a.name} from Lark` : `Open ${a.name}` }, a.name)
+        : h("span", { class: "att-name", title: a.name }, a.name),
         h("span", { class: "att-meta" }, [fmtBytes(a.size || 0),
           a.token ? "in Lark" : tooBig ? `too large (max ${LARK.maxUploadMb} MB)` : "uploads on save"].join(" · "))),
       h("button", { type: "button", class: "att-x", "data-remove": String(i), "aria-label": `Remove ${a.name}` }, ic("x")));
@@ -857,11 +860,48 @@ function wireExtras() {
     onExtrasChange();
   };
   $("#attList").addEventListener("click", (e) => {
+    const open = e.target.closest("[data-open]");
+    if (open && S.doc) return openAttachment(S.doc, S.doc.attachments[Number(open.dataset.open)], open);
     const b = e.target.closest("[data-remove]");
     if (!b || !S.doc) return;
     S.doc.attachments.splice(Number(b.dataset.remove), 1);
     onExtrasChange();
   });
+}
+
+/**
+ * Download an attachment. One that is in Lark gets a temporary link (Lark decides whether the
+ * browser saves it or shows it, e.g. a PDF, in the new tab); one not uploaded yet comes from memory.
+ */
+async function openAttachment(doc, a, btn) {
+  if (!a) return;
+  if (!a.token) {
+    if (!a.file) return;
+    const url = URL.createObjectURL(a.file);
+    h("a", { href: url, download: a.name }).click();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    return;
+  }
+  if (btn.classList.contains("is-busy")) return;
+  // Open the tab now, while the click still counts as the person's: after waiting for Lark,
+  // the browser would block it as a pop-up.
+  const tab = window.open("", "_blank");
+  if (tab) { tab.opener = null; tab.document.title = `Downloading ${a.name}…`; }
+  btn.classList.add("is-busy");
+  const meta = btn.parentElement.querySelector(".att-meta");
+  const was = meta?.textContent;
+  if (meta) meta.textContent = "Getting the file from Lark…";
+  try {
+    const link = await lark.attachmentLink(doc.id, a.token);
+    if (tab && !tab.closed) tab.location.href = link;
+    else toast(`“${a.name}” is ready.`, { type: "success", link: { href: link, text: "Download it" }, timeout: 0 });
+  } catch (err) {
+    tab?.close();
+    toast(`Couldn't download “${a.name}”. ${describe(err)}`, { type: "error" });
+  } finally {
+    btn.classList.remove("is-busy");
+    if (meta) meta.textContent = was;
+  }
 }
 
 /** Upload attachments that aren't in Lark yet. Every file is tried; the row is written only when

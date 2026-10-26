@@ -192,3 +192,29 @@ export const describeSkipped = (skipped) =>
   skipped.map((s) => `“${s.column}” has no option “${s.value}” in Lark.`);
 
 export { canon };
+
+// ---- downloading an attachment -----------------------------------------------------------
+const TMP_LINK_API = `${LARK.api}/drive/v1/medias/batch_get_tmp_download_url`;
+
+/**
+ * The Lark call that gives a temporary download link for one attachment of a record's cells.
+ * Lark puts it in the cell itself (tmp_url, with the right permission context for the Base);
+ * it's used only if it is that Lark endpoint, so the person's token never goes anywhere else.
+ * Otherwise the call is built here. Null if the file is no longer attached.
+ */
+export function downloadRequest(fields, fileToken, tableId) {
+  const cell = fields && fields[FIELD.attachments];
+  const a = (Array.isArray(cell) ? cell : []).find((x) => x && x.file_token === fileToken);
+  if (!a) return null;
+  if (typeof a.tmp_url === "string" && a.tmp_url.startsWith(`${TMP_LINK_API}?`)) return a.tmp_url;
+  return `${TMP_LINK_API}?file_tokens=${encodeURIComponent(fileToken)}`
+    + `&extra=${encodeURIComponent(JSON.stringify({ bitablePerm: { tableId } }))}`;
+}
+
+/** The temporary link (an https address, valid about a day) in Lark's answer, or "". */
+export function downloadLink(json, fileToken) {
+  const urls = (json && json.data && json.data.tmp_download_urls) || [];
+  const hit = urls.find((u) => u && u.file_token === fileToken) || (urls.length === 1 ? urls[0] : null);
+  const link = hit && typeof hit.tmp_download_url === "string" ? hit.tmp_download_url : "";
+  return /^https:\/\//.test(link) ? link : "";
+}

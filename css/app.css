@@ -200,6 +200,11 @@ body.dragging .dz-drop { opacity: 1; }
 .att-info { flex: 1; min-width: 0; display: grid; line-height: 1.3; }
 .att-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .att-meta { font-size: 11.5px; color: var(--muted); }
+/* a file that can be opened: in Lark (downloads) or still in memory (not uploaded yet) */
+.att-open { justify-self: start; max-width: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; font-size: 13px; font-weight: 600; text-align: left; cursor: pointer; }
+.att-open:hover, .att-open:focus-visible { color: var(--brand-text); text-decoration: underline; text-underline-offset: 2px; }
+.att-open:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 3px; }
+.att-open.is-busy { cursor: progress; opacity: .7; }
 .att-x { width: 26px; height: 26px; border: 0; border-radius: 7px; background: none; color: var(--muted); display: grid; place-items: center; }
 .att-x .i { width: 14px; height: 14px; }
 .att-x:hover { background: var(--danger-soft); color: var(--danger); }
