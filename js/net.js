@@ -207,3 +207,20 @@ export async function larkUpload(url, form, { token, timeout = UPLOAD_TIMEOUT_MS
   if (token && DEAD_TOKEN_CODES.includes(code) && onDeadToken) onDeadToken();
   return { json, status: res.status };
 }
+
+/**
+ * Download a file's bytes from Lark through the proxy (it passes them through as they are).
+ * Resolves with a Blob; a JSON answer instead of a file is Lark (or the proxy) refusing.
+ */
+export async function larkDownload(url, { token, timeout = UPLOAD_TIMEOUT_MS } = {}) {
+  const res = await send(larkService, viaProxy(url), { method: "GET", headers: { Authorization: `Bearer ${token}` }, cache: "no-store" }, timeout);
+  const type = res.headers.get("content-type") || "";
+  if (res.ok && !/json/i.test(type)) return res.blob();
+  const text = await res.text();
+  let json = null;
+  try { json = JSON.parse(text); } catch (_) { /* not JSON */ }
+  const code = Number(json && json.code);
+  if (token && DEAD_TOKEN_CODES.includes(code) && onDeadToken) onDeadToken();
+  throw new LarkError(json ? "Lark error" : `HTTP ${res.status}, not a file`,
+    { status: res.status, json: json || undefined, raw: json ? undefined : text.slice(0, 2000), deadToken: !!token && DEAD_TOKEN_CODES.includes(code) });
+}

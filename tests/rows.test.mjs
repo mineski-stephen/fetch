@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as B from "../js/brief.js";
-import { FIELD, fromRecord, briefCells, extraCells, newRowCells, changedCells, toFields, sigs, downloadRequest, downloadLink } from "../js/rows.js";
+import { FIELD, fromRecord, briefCells, extraCells, newRowCells, changedCells, toFields, sigs, downloadRequest, downloadLink, fileRequest } from "../js/rows.js";
 import { plain, clean, isBlank, canon, sameCell, cellSig, matchOption, toLarkDay, fromLarkDay } from "../js/cells.js";
 import { liveFields, fakeLark, TABLE } from "./fake-lark.mjs";
 import { optionsOf } from "../js/schema.js";
@@ -240,4 +240,21 @@ test("the download link is read from Lark's answer, https only", () => {
   assert.equal(downloadLink(json, "t1"), "https://internal-api-drive-stream.larksuite.com/x");
   assert.equal(downloadLink({ data: { tmp_download_urls: [{ file_token: "t1", tmp_download_url: "javascript:alert(1)" }] } }, "t1"), "");
   assert.equal(downloadLink({ data: {} }, "t1"), "");
+});
+
+test("an attachment's file request uses the cell's own download address only if it is Lark's", () => {
+  const base = "https://open.larksuite.com/open-apis/drive/v1/medias";
+  const own = `${base}/t1/download?extra=%7B%22bitablePerm%22%3A%7B%7D%7D`;
+  const fields = { [FIELD.attachments]: [
+    { file_token: "t1", name: "a.pdf", url: own },
+    { file_token: "t2", name: "b.pdf", url: `${base}/OTHER/download` },
+    { file_token: "t3", name: "c.pdf", url: "https://evil.example/t3/download" },
+  ] };
+  assert.equal(fileRequest(fields, "t1", "tblX"), own);
+  for (const t of ["t2", "t3"]) {
+    const built = fileRequest(fields, t, "tblX");
+    assert.ok(built.startsWith(`${base}/${t}/download?extra=`), built);
+    assert.match(decodeURIComponent(built), /"tableId":"tblX"/);
+  }
+  assert.equal(fileRequest(fields, "gone", "tblX"), null);
 });

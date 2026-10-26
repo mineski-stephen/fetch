@@ -218,3 +218,18 @@ export function downloadLink(json, fileToken) {
   const link = hit && typeof hit.tmp_download_url === "string" ? hit.tmp_download_url : "";
   return /^https:\/\//.test(link) ? link : "";
 }
+
+/**
+ * The Lark address that returns an attachment's bytes (fetched through the proxy with the
+ * person's token). The cell's own `url` is used when it is exactly that endpoint for this
+ * file, since it carries the Base's permission context; otherwise it is built here.
+ * Null if the file is no longer attached.
+ */
+export function fileRequest(fields, fileToken, tableId) {
+  const cell = fields && fields[FIELD.attachments];
+  const a = (Array.isArray(cell) ? cell : []).find((x) => x && x.file_token === fileToken);
+  if (!a) return null;
+  const endpoint = `${LARK.api}/drive/v1/medias/${encodeURIComponent(fileToken)}/download`;
+  if (typeof a.url === "string" && (a.url === endpoint || a.url.startsWith(`${endpoint}?`))) return a.url;
+  return `${endpoint}?extra=${encodeURIComponent(JSON.stringify({ bitablePerm: { tableId } }))}`;
+}

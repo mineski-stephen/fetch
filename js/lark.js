@@ -9,12 +9,12 @@
  * Column names are in schema.js; tools/setup_lark_table.py creates them from the same list.
  */
 import * as auth from "./auth.js";
-import { lark, larkUpload, LarkError } from "./net.js";
+import { lark, larkUpload, larkDownload, LarkError } from "./net.js";
 import { cfg } from "./settings.js";
 import { LARK } from "./config.js";
 import { WriteBlocked } from "./errors.js";
 import { newClientToken, getRecord } from "./tables.js";
-import { downloadRequest, downloadLink } from "./rows.js";
+import { downloadRequest, downloadLink, fileRequest } from "./rows.js";
 import * as ops from "./ops.js";
 
 /** The live check of the table's columns: { checked, problems, partial, missing, options, fields }. */
@@ -83,18 +83,25 @@ async function uploadFile(file) {
 }
 
 /**
- * A temporary link (valid about a day) to download one attachment of a filed brief. The row is
- * read again first: Lark's cell says how to ask for the link (and whether the file is still there).
+ * One attachment of a filed brief, for downloading: { blob } (the file itself, fetched through
+ * the proxy, so the page can save it under its own name) or, if Lark won't hand the bytes to
+ * the proxy, { link } (a temporary address, valid about a day). The row is read again first:
+ * its cell says how to ask (the Base's permission context) and whether the file is still there.
  */
-async function attachmentLink(recordId, fileToken) {
+async function attachmentFile(recordId, fileToken) {
   const t = table();
   const rec = await getRecord(call, t, recordId);
-  const url = downloadRequest(rec.fields, fileToken, t.table);
-  if (!url) throw new LarkError("gone", { json: { code: 404, msg: "This file is no longer attached to the brief in Lark. Reload the brief." } });
-  const json = await call("GET", url, null, { read: true });
-  const link = downloadLink(json, fileToken);
-  if (!link) throw new LarkError("Lark error", { json });
-  return link;
+  const direct = fileRequest(rec.fields, fileToken, t.table);
+  if (!direct) throw new LarkError("gone", { json: { code: 404, msg: "This file is no longer attached to the brief in Lark. Reload the brief." } });
+  try {
+    return { blob: await larkDownload(direct, { token: token() }) };
+  } catch (err) {
+    if (err.deadToken) throw err;
+    const json = await call("GET", downloadRequest(rec.fields, fileToken, t.table), null, { read: true }).catch(() => null);
+    const link = downloadLink(json, fileToken);
+    if (!link) throw err;
+    return { link };
+  }
 }
 
-export { schema, listAll, create, update, setDone, remove, uploadFile, attachmentLink, newClientToken as uuid };
+export { schema, listAll, create, update, setDone, remove, uploadFile, attachmentFile, newClientToken as uuid };

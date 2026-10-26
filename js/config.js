@@ -15,7 +15,7 @@
  */
 /* version: bump it with every release and add an entry to CHANGELOG.md (newest first, same number).
    The top bar shows it beside the name, so people can see at a glance which version they're running. */
-export const APP = { name: "Fetch", key: "fetch", version: "1.0.0", env: "live" };   // env: "live" | "test"
+export const APP = { name: "Fetch", key: "fetch", version: "1.1.0", env: "live" };   // env: "live" | "test"
 export const ENV_LABEL = APP.env === "test" ? "Test copy" : "";    // display only, never a gate
 
 export const SERVICES = {   // hosted defaults; `min` and `headers` are checked on every wake

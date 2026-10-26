@@ -869,34 +869,31 @@ function wireExtras() {
   });
 }
 
+/** Save a file under its own name, in place (no new tab). */
+function saveFile(blob, name) {
+  const url = URL.createObjectURL(blob);
+  h("a", { href: url, download: name }).click();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
 /**
- * Download an attachment. One that is in Lark gets a temporary link (Lark decides whether the
- * browser saves it or shows it, e.g. a PDF, in the new tab); one not uploaded yet comes from memory.
+ * Download an attachment: one in Lark is fetched through the connection service and saved
+ * under its name; one not uploaded yet comes from memory. If Lark only gives a temporary link,
+ * a message offers it (opening it is then the person's own click).
  */
 async function openAttachment(doc, a, btn) {
   if (!a) return;
-  if (!a.token) {
-    if (!a.file) return;
-    const url = URL.createObjectURL(a.file);
-    h("a", { href: url, download: a.name }).click();
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
-    return;
-  }
+  if (!a.token) return a.file && saveFile(a.file, a.name);
   if (btn.classList.contains("is-busy")) return;
-  // Open the tab now, while the click still counts as the person's: after waiting for Lark,
-  // the browser would block it as a pop-up.
-  const tab = window.open("", "_blank");
-  if (tab) { tab.opener = null; tab.document.title = `Downloading ${a.name}…`; }
   btn.classList.add("is-busy");
   const meta = btn.parentElement.querySelector(".att-meta");
   const was = meta?.textContent;
-  if (meta) meta.textContent = "Getting the file from Lark…";
+  if (meta) meta.textContent = "Downloading from Lark…";
   try {
-    const link = await lark.attachmentLink(doc.id, a.token);
-    if (tab && !tab.closed) tab.location.href = link;
-    else toast(`“${a.name}” is ready.`, { type: "success", link: { href: link, text: "Download it" }, timeout: 0 });
+    const got = await lark.attachmentFile(doc.id, a.token);
+    if (got.blob) saveFile(got.blob, a.name);
+    else toast(`“${a.name}” is ready.`, { type: "success", link: { href: got.link, text: "Download it" }, timeout: 0 });
   } catch (err) {
-    tab?.close();
     toast(`Couldn't download “${a.name}”. ${describe(err)}`, { type: "error" });
   } finally {
     btn.classList.remove("is-busy");
