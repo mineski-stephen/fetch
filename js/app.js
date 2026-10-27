@@ -6,6 +6,7 @@
  *   #/result        the freshly extracted, unsaved draft
  *   #/briefs        every brief saved in the Lark Base
  *   #/briefs/<id>   one saved brief, editable
+ *   #/share/<id>    one saved brief, view only (its sharing link; the "Fetch URL" column)
  *   #/settings      account, Gemini key, connections   (#/settings/key focuses the key)
  *
  * Everything except Settings needs a Lark login (auth.js). Without one, any route
@@ -26,7 +27,7 @@ import { cfg, geminiKey } from "./settings.js";
 import { larkService, geminiService, onAnyService, blockedHosts, describe } from "./net.js";
 import { describeWrite, isUncertain, LarkError } from "./errors.js";
 import { APP, ENV_LABEL, RULES, LARK } from "./config.js";
-import { sigs } from "./rows.js";
+import { sigs, shareUrl } from "./rows.js";
 import { ICONS } from "./icons.js";
 import { $, $$, h, ic, fillIcons, toast, busy, flashDone, popBadge, copyText, flash, openMenu, closeMenu, confirmDanger,
          radioKeys, confetti, store, recall, reduceMotion } from "./ui.js";
@@ -116,6 +117,7 @@ function route() {
   updateWriteNote();
   if (a !== "settings" && !auth.currentToken()) return showLogin();
   if (a === "briefs" && b) return showRecord(decodeURIComponent(b));
+  if (a === "share" && b) return showRecord(decodeURIComponent(b), { shared: true });
   if (a === "briefs") return showBriefs();
   if (a === "result") return S.draft ? showDraft() : go("#/");
   if (a === "settings") return showSettings();
@@ -826,14 +828,14 @@ function wireExtras() {
   for (const [id, prop] of [["#reqChips", "requirement"], ["#vatChips", "vat"]]) {
     $(id).addEventListener("click", (e) => {
       const chip = e.target.closest("[data-choice]");
-      if (!chip || !S.doc) return;
+      if (!chip || !S.doc || S.doc.shared) return;
       S.doc[prop] = S.doc[prop] === chip.dataset.choice ? "" : chip.dataset.choice;   // click again to clear
       onExtrasChange();
     });
   }
   $("#nsChips").addEventListener("click", (e) => {
     const chip = e.target.closest(".chip-opt[data-step]");
-    if (!chip || !S.doc) return;
+    if (!chip || !S.doc || S.doc.shared) return;
     const t = chip.dataset.step, steps = S.doc.nextSteps;
     const i = steps.findIndex((x) => x.toLowerCase() === t.toLowerCase());
     if (i >= 0) steps.splice(i, 1); else steps.push(t);
@@ -842,14 +844,14 @@ function wireExtras() {
   $("#nsAddForm").addEventListener("submit", (e) => {
     e.preventDefault();
     const input = $("#nsAddInput"), t = input.value.trim();
-    if (!t || !S.doc) return;
+    if (!t || !S.doc || S.doc.shared) return;
     if (!S.doc.nextSteps.some((x) => x.toLowerCase() === t.toLowerCase())) S.doc.nextSteps.push(t);
     input.value = "";
     onExtrasChange();
   });
   $("#attAddBtn").onclick = () => $("#attInput").click();
   $("#attInput").onchange = (e) => {
-    if (!S.doc) return;
+    if (!S.doc || S.doc.shared) return;
     for (const f of e.target.files) {
       if (!S.doc.attachments.some((a) => a.file && a.name === f.name && a.size === f.size)) {
         S.doc.attachments.push({ name: f.name, size: f.size, file: f });
@@ -863,7 +865,7 @@ function wireExtras() {
     const open = e.target.closest("[data-open]");
     if (open && S.doc) return openAttachment(S.doc, S.doc.attachments[Number(open.dataset.open)], open);
     const b = e.target.closest("[data-remove]");
-    if (!b || !S.doc) return;
+    if (!b || !S.doc || S.doc.shared) return;
     S.doc.attachments.splice(Number(b.dataset.remove), 1);
     onExtrasChange();
   });
@@ -943,6 +945,10 @@ function openDoc(doc) {
   if (S.checking) setChecking(false);
   S.doc = doc;
   showView("result");
+  doc.shared = !!doc.shared;
+  paper.setReadOnly(doc.shared);
+  $('[data-view="result"] .split').classList.toggle("is-shared", doc.shared);
+  $("#shareBtn").hidden = doc.mode !== "record";
   $("#checkBar").hidden = !(doc.mode === "draft" && Array.isArray(S.draft?.evidence));
   $("#checkBtn").disabled = !S.draft?.evidence?.length;
   $("#checkBtn").title = S.draft?.evidence?.length ? "" : "Gemini didn't quote any sources for this brief.";
@@ -976,6 +982,7 @@ function refreshResult() {
 
   const meta = [];
   if (record) {
+    if (doc.shared) meta.push("View only");
     meta.push(`Filed ${B.fmtDate(m.date_filed)}${doc.filedBy ? ` by ${doc.filedBy}` : ""}`);
     if (doc.status) meta.push(`Status: ${doc.status}`);
     if (dirty) meta.push("Unsaved changes");
@@ -1156,6 +1163,15 @@ function wireResult() {
     popBadge(btn, "Copied!");
   };
 
+  $("#shareBtn").onclick = async (e) => {
+    const btn = e.currentTarget;
+    if (!S.doc || S.doc.mode !== "record") return;
+    const ok = await copyText(shareUrl(S.doc.id));
+    if (!ok) return toast("Couldn't copy. Here's the link:", { type: "error", detail: shareUrl(S.doc.id), timeout: 0 });
+    flashDone(btn, "Link copied");
+    popBadge(btn, "Copied!");
+  };
+
   $("#pdfBtn").onclick = async (e) => {
     const btn = e.currentTarget;
     busy(btn, true, "Preparing PDF…");
@@ -1294,7 +1310,7 @@ async function confirmSave({ skipFailed = false } = {}) {
     } else {
       const was = { nextSteps: doc.savedNextSteps, requirement: doc.savedRequirement, vat: doc.savedVat,
         attachments: (doc.savedAttachments || []).map((a) => a.token) };
-      res = await lark.update({ id: doc.id, sig: doc.sig, model: doc.original }, stateOf(doc.original, was),
+      res = await lark.update({ id: doc.id, sig: doc.sig, model: doc.original, fetchUrl: doc.fetchUrl }, stateOf(doc.original, was),
         stateOf(doc.model, { ...doc, attachments: tokens }), { force: !!doc.overwrite });
       row = res.row;
     }
@@ -1332,6 +1348,7 @@ async function confirmSave({ skipFailed = false } = {}) {
       doc.savedNextSteps = row.nextSteps; doc.savedAttachments = row.attachments;
       doc.savedRequirement = row.requirement; doc.savedVat = row.vat;
       doc.sig = row.sig;
+      doc.fetchUrl = row.fetchUrl || doc.fetchUrl;
       doc.attachments = attachedList(doc);
       doc.savedExtras = extrasKey(doc);
       delete S.edits[doc.id];
@@ -1472,7 +1489,21 @@ function briefCard(b, i) {
       "aria-expanded": "false", title: "More actions" }, ic("dots")));
 }
 
+/** The "Fetch URL" column: offer to point old or missing links at each brief's sharing link. */
+function renderLinkFix() {
+  const st = S.briefs ? lark.linkStatus(S.briefs) : { todo: 0 };
+  const box = $("#linkFix");
+  box.hidden = !st.todo;
+  if (!st.todo) return;
+  const n = `${st.todo} brief${st.todo === 1 ? "" : "s"}`;
+  $("#linkFixText").textContent = st.formula
+    ? `${n} don't link to their view-only page in the “Fetch URL” column. It's a formula, so change it in Lark to: "${APP.url}#/share/" & RECORD_ID()`
+    : `${n} don't link to their view-only page in the “Fetch URL” column yet (old links, or none).`;
+  $("#linkFixBtn").hidden = st.formula || !!writeProblem();
+}
+
 function renderBriefs() {
+  renderLinkFix();
   const grid = $("#briefGrid");
   if (!S.briefs) return;
   const q = $("#briefSearch").value.trim().toLowerCase();
@@ -1603,7 +1634,8 @@ function showBriefs() {
   if (!S.briefs || Date.now() - S.briefsAt > 30000) loadBriefs();
 }
 
-async function showRecord(id) {
+/** A saved brief. `shared`: its sharing link, view only (unsaved edits from this tab aren't shown). */
+async function showRecord(id, { shared = false } = {}) {
   const hash = location.hash;
   let b = S.briefs?.find((x) => x.id === id);
   if (!S.briefsAt) {
@@ -1628,9 +1660,9 @@ async function showRecord(id) {
       }
     }
   }
-  const e = S.edits[id];
+  const e = shared ? null : S.edits[id];
   openDoc({
-    mode: "record", id, model: clone(e?.model || b.model), original: clone(b.model),
+    mode: "record", id, shared, fetchUrl: b.fetchUrl || "", model: clone(e?.model || b.model), original: clone(b.model),
     status: b.status, filedBy: b.filedBy, sources: b.sources,
     nextSteps: e?.nextSteps || b.nextSteps || [], attachments: e?.attachments || b.attachments || [],
     requirement: e ? e.requirement : b.requirement || "", vat: e ? e.vat : b.vat || "",
@@ -1642,6 +1674,19 @@ async function showRecord(id) {
 }
 
 function wireBriefs() {
+  $("#linkFixBtn").onclick = async (e) => {
+    const btn = e.currentTarget;
+    busy(btn, true, "Updating…");
+    try {
+      const n = await lark.fixLinks(S.briefs || []);
+      busy(btn, false);
+      toast(`Updated the link of ${n} brief${n === 1 ? "" : "s"} in Lark.`, { type: "success" });
+    } catch (err) {
+      busy(btn, false);
+      toast(`Couldn't update the links. ${describe(err)}`, { type: "error" });
+    }
+    loadBriefs().catch(() => {});   // read back what Lark holds now
+  };
   $("#briefSearch").addEventListener("input", renderBriefs);
   $("#briefSort").addEventListener("change", renderBriefs);
   $("#refreshBtn").onclick = () => loadBriefs();

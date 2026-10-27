@@ -107,6 +107,8 @@ Lark can use Fetch.
    the row, writes **only the cells that changed**, and refuses if one of those
    cells was changed in Lark since the page loaded it. Briefs marked
    **Done** move to a collapsed *Done* section; any brief can be deleted.
+   Each brief also has a **sharing link** (`#/share/<record id>`, view only),
+   kept in the *Fetch URL* column.
 
 ---
 
@@ -413,6 +415,7 @@ page checks them against it on every load (see [Schema check](#schema-check)):
 | Done | Single select | **Yes** or **No**. Set from the page (right-click a card, or its ⋯ button → *Mark as Done* / *Mark as Not Done*) or in Lark. **Yes** moves the brief out of the main list into the collapsed **Done** section (newest filed first). **No** or empty keeps it in the list. New rows start as **No**. |
 | **Brief JSON** | Text | **The source of truth the page renders from. Don't edit it by hand.** |
 | Last Modified | Modified time | Automatic. |
+| Fetch URL | URL (or Text, or Formula) | The brief's **sharing link**, `https://mineski-stephen.github.io/fetch/#/share/<record id>` (the hosted address is `APP.url` in `js/config.js`, so links made from a local copy still point to the real site). Optional. Written right after a brief is filed (a second, best-effort write: Lark only gives the record id once the row exists) and corrected whenever a brief is saved. Old or empty links: **All briefs** shows "N briefs don't link to their view-only page…" with **Update them**, which rewrites only this cell, in batches of 500. As a URL column the cell is a link, as Text the plain address; as a Formula Fetch only reads it, and All briefs gives the formula to use: `"https://mineski-stephen.github.io/fetch/#/share/" & RECORD_ID()`. |
 
 **Where edits belong.** The page renders each brief from `Brief JSON`; the
 readable columns are copies of it. Edit content **on the page** (click the
@@ -601,6 +604,10 @@ variable (see `tech/lark-proxy/README.md`).
 6. Later, open **All briefs**, search or sort by due date, click a card to
    reopen it, edit, and **Save changes to Lark**. Click a file's name in the
    **Attachments** card to download it; it's saved under its own name.
+   **Copy sharing link** gives a view-only link to the brief (also in the
+   *Fetch URL* column in Lark): the brief as a document, attachments
+   downloadable, nothing editable. Whoever opens it logs in with Lark and needs
+   access to the briefs table, like everyone else.
 7. When a brief is finished, right-click its card (or click ⋯) → **Mark as
    Done**. It moves to the collapsed **Done** section under the list; open that
    section and choose **Mark as Not Done** to bring it back. An **Undo** link
@@ -906,6 +913,8 @@ changed and every other row is untouched.
 | A yellow callout: "**Saving is switched off.** The briefs table doesn't match what Fetch expects. Tell the tool owner." with "Column “Done” is missing." (or "“Done” has no option “Yes”.", "Column “Due Date” is Text, expected Date.") | A column was renamed, deleted or retyped in Lark. Rename it back, or run `python tools/setup_lark_table.py --apply`, then Refresh in Settings. Saving, Done and Delete come back on their own. |
 | "Couldn't download “…”" when clicking an attachment | Lark refused the link. A missing-permission message means the login's scope doesn't cover Drive downloads: add `drive:drive:readonly` to `LARK.scopes` in `js/config.js` and to the Lark app (*Permissions & Scopes*), then log in again. "No longer attached" means it was removed in Lark: reopen the brief. |
 | Clicking an attachment shows "“…” is ready." with a *Download it* link instead of downloading | Lark didn't let the connection service fetch the file, so Fetch got a temporary link instead. Click *Download it* (it works for about a day). |
+| All briefs: "N briefs don't link to their view-only page in the “Fetch URL” column" | Old links (`#/briefs/…`) or empty cells. Click **Update them** (only that column is written). If it says the column is a formula, change the formula in Lark as shown. |
+| A sharing link shows the login screen | The view-only page still reads the brief from Lark as the person opening it: they log in with Lark and need access to the briefs table. |
 | "Some actions are switched off." with "Column “Attachments” is missing." | An optional column is gone. Only what uses it is off. Restore it, or run the setup script. |
 | "A column Fetch needs doesn't exist: …. Tell the tool owner." | Same as above, reported by Lark when a write names a missing column. |
 | "“…” changed in Lark since you opened it. Nothing was written." with the cell names, and the button reads **Save anyway** | Someone changed those cells in Lark meanwhile. The list has refreshed. Choose **Save anyway** to write your version of just the cells you changed, or close the dialog and reopen the brief to see theirs. |

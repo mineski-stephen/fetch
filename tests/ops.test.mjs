@@ -117,6 +117,7 @@ test("update: Status, Done and other Lark-owned cells are never touched by a con
 test("update: a cell changed in Lark since it was loaded is not overwritten", async () => {
   const { call, schema, row } = await opened();
   call.state.edit(row.id, { [FIELD.nextSteps]: ["Pitch Deck"] });   // someone else, in Lark
+  const seen = call.state.calls.length;   // the row's creation (and its link) came before
   const mine = st({ ...row.model }, { nextSteps: ["PM Assignment"] });
   await assert.rejects(() => ops.updateBrief(call, TABLE, schema, row, st(row.model), mine), (e) => {
     assert.ok(e instanceof AlreadyDone);
@@ -126,7 +127,7 @@ test("update: a cell changed in Lark since it was loaded is not overwritten", as
     return true;
   });
   assert.deepEqual(call.state.records[0].fields[FIELD.nextSteps], ["Pitch Deck"], "their change survived");
-  assert.ok(!call.state.calls.some((c) => c.url === "/records/batch_update"));
+  assert.ok(!call.state.calls.slice(seen).some((c) => c.url === "/records/batch_update"));
 });
 
 test("update: an unrelated change in Lark doesn't block the save", async () => {
@@ -256,4 +257,51 @@ test("tables: fields and records page through, a missing token throws", async ()
   assert.equal(recs.length, 25);
   assert.deepEqual(seen.at(-1), [25, 25]);
   assert.equal((await getRecord(call, TABLE, recs[3].record_id)).record_id, recs[3].record_id);
+});
+
+// ---- the sharing link in "Fetch URL" ----------------------------------------------------
+const SHARE = (id) => `https://mineski-stephen.github.io/fetch/#/share/${id}`;
+const withLinkType = (type) => liveFields((fs) => fs.map((f) => (f.field_name === FIELD.fetchUrl ? { ...f, type } : f)));
+
+test("a new brief gets its sharing link in Fetch URL (as a link in a URL column)", async () => {
+  const { call, made } = await opened();
+  const cell = call.state.records.find((r) => r.record_id === made.recordId).fields[FIELD.fetchUrl];
+  assert.deepEqual(cell, { link: SHARE(made.recordId), text: SHARE(made.recordId) });
+  assert.equal(made.row.fetchUrl, SHARE(made.recordId));
+});
+
+test("a text Fetch URL column gets the address; a formula one is never written", async () => {
+  const text = await opened({ fields: withLinkType(T.text) });
+  assert.equal(text.row.fetchUrl, SHARE(text.made.recordId));
+  const formula = await opened({ fields: withLinkType(T.formula) });
+  assert.deepEqual(formula.schema.problems, [], "a formula column is fine");
+  assert.equal(call0(formula).fields[FIELD.fetchUrl], undefined);
+  assert.equal(ops.linkCells(formula.schema, "rec1", ""), null);
+});
+const call0 = ({ call, made }) => call.state.records.find((r) => r.record_id === made.recordId);
+
+test("a brief without Fetch URL still saves, and the link is written with its next save", async () => {
+  const { call, schema, row } = await opened();
+  call.state.edit(row.id, { [FIELD.fetchUrl]: { link: "https://old.example/#/briefs/x", text: "old" } });
+  const { rows } = await ops.loadBriefs(call, TABLE);
+  const fresh = rows.find((r) => r.id === row.id);
+  assert.equal(fresh.fetchUrl, "https://old.example/#/briefs/x");
+  await ops.updateBrief(call, TABLE, schema, fresh, st(fresh.model), st({ ...fresh.model, venue: "New venue" }));
+  assert.equal(call0({ call, made: { recordId: row.id } }).fields[FIELD.fetchUrl].link, SHARE(row.id));
+});
+
+test("fixLinks points every old or empty Fetch URL at the sharing view, and only that cell", async () => {
+  const { call, schema } = await opened();
+  call.state.add({ [FIELD.title]: "Old", [FIELD.json]: JSON.stringify({ project_title: "Old" }),
+    [FIELD.fetchUrl]: { link: "https://mineski-stephen.github.io/fetch/#/briefs/recOld", text: "x" } });
+  call.state.add({ [FIELD.title]: "Empty", [FIELD.json]: JSON.stringify({ project_title: "Empty" }) });
+  const { rows } = await ops.loadBriefs(call, TABLE);
+  const seen = call.state.calls.length;
+  assert.equal(await ops.fixLinks(call, TABLE, schema, rows), 2);
+  const writes = call.state.calls.slice(seen).filter((c) => c.url === "/records/batch_update");
+  assert.equal(writes.length, 1);
+  for (const r of writes[0].body.records) assert.deepEqual(Object.keys(r.fields), [FIELD.fetchUrl]);
+  const again = (await ops.loadBriefs(call, TABLE)).rows;
+  assert.ok(again.every((r) => r.fetchUrl === SHARE(r.id)));
+  assert.equal(await ops.fixLinks(call, TABLE, schema, again), 0);
 });

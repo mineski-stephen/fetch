@@ -10,7 +10,7 @@ import * as B from "./brief.js";
 import { RULES } from "./config.js";
 
 /** Lark field type ids. */
-export const T = { text: 1, number: 2, select: 3, multi: 4, date: 5, checkbox: 7, user: 11, url: 15, attachment: 17, modified: 1002 };
+export const T = { text: 1, number: 2, select: 3, multi: 4, date: 5, checkbox: 7, user: 11, url: 15, attachment: 17, formula: 20, modified: 1002 };
 export const TYPE_NAMES = { 1: "Text", 2: "Number", 3: "Single select", 4: "Multi select", 5: "Date", 7: "Checkbox",
                             11: "Person", 15: "URL", 17: "Attachment", 18: "Link", 19: "Lookup", 20: "Formula",
                             1001: "Created time", 1002: "Last modified time" };
@@ -23,6 +23,7 @@ const vatLabels = Object.values(RULES.vatChoices).map((c) => c.label);
 // `options`: what the page writes (must exist in Lark, and the setup script creates them).
 // `optional`: may be missing; the actions that need the column switch off until it exists.
 // `open`: writes may add new options here on purpose (people type their own next steps).
+// `types`: other column types that are fine too (the first one, `type`, is what the setup script creates).
 export const COLUMNS = [
   { key: "title", name: "Project Title", type: T.text, primary: true },
   { key: "client", name: "Client", type: T.text },
@@ -53,6 +54,9 @@ export const COLUMNS = [
   { key: "vat", name: "VAT", type: T.multi, options: vatLabels, need: vatLabels, optional: true },
   { key: "done", name: "Done", type: T.select, options: ["Yes", "No"], need: ["Yes", "No"] },   // Yes = in the collapsed Done section
   { key: "modified", name: "Last Modified", type: T.modified, optional: true },
+  // The brief's sharing link (#/share/<record id>). Fetch writes it as a URL or text; as a formula
+  // (built from RECORD_ID()) Lark fills it, and Fetch only reads it.
+  { key: "fetchUrl", name: "Fetch URL", type: T.url, types: [T.url, T.text, T.formula], optional: true },
 ];
 
 export const TABLE_TITLE = "Briefs";
@@ -65,9 +69,9 @@ export const MULTI_SELECTS = new Set(COLUMNS.filter((c) => c.type === T.multi).m
 export function tableSpec() {
   const fields = {}, optional = {}, options = {}, neededBy = {};
   for (const c of COLUMNS) {
-    (c.optional ? optional : fields)[c.name] = c.type;
+    (c.optional ? optional : fields)[c.name] = c.types || c.type;
     if (c.need) options[c.name] = c.need;
-    if (c.optional && c.type !== T.modified) neededBy[c.key] = [c.name];
+    if (c.optional && c.type !== T.modified && c.key !== "fetchUrl") neededBy[c.key] = [c.name];
   }
   return {
     title: TABLE_TITLE, fields, optional, options,
@@ -97,15 +101,17 @@ export function optionsOf(fields) {
 export function checkSchema(fields, spec = tableSpec()) {
   const byName = new Map((fields || []).map((f) => [f.field_name, f]));
   const typeName = (t) => TYPE_NAMES[t] || `type ${t}`;
+  const fits = (f, type) => (Array.isArray(type) ? type.includes(f.type) : f.type === type);
+  const wanted = (type) => (Array.isArray(type) ? type.map(typeName).join(" or ") : typeName(type));
   const problems = [];
   for (const [name, type] of Object.entries(spec.fields)) {
     const f = byName.get(name);
     if (!f) { problems.push(`Column “${name}” is missing.`); continue; }
-    if (f.type !== type) problems.push(`Column “${name}” is ${typeName(f.type)}, expected ${typeName(type)}.`);
+    if (!fits(f, type)) problems.push(`Column “${name}” is ${typeName(f.type)}, expected ${wanted(type)}.`);
   }
   for (const [name, type] of Object.entries(spec.optional || {})) {
     const f = byName.get(name);
-    if (f && f.type !== type) problems.push(`Column “${name}” is ${typeName(f.type)}, expected ${typeName(type)}.`);
+    if (f && !fits(f, type)) problems.push(`Column “${name}” is ${typeName(f.type)}, expected ${wanted(type)}.`);
   }
   for (const [name, wanted] of Object.entries(spec.options || {})) {
     if (!byName.has(name)) continue;

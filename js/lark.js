@@ -14,7 +14,8 @@ import { cfg } from "./settings.js";
 import { LARK } from "./config.js";
 import { WriteBlocked } from "./errors.js";
 import { newClientToken, getRecord } from "./tables.js";
-import { downloadRequest, downloadLink, fileRequest } from "./rows.js";
+import { downloadRequest, downloadLink, fileRequest, shareUrl } from "./rows.js";
+import { FIELD, T } from "./schema.js";
 import * as ops from "./ops.js";
 
 /** The live check of the table's columns: { checked, problems, partial, missing, options, fields }. */
@@ -104,4 +105,18 @@ async function attachmentFile(recordId, fileToken) {
   }
 }
 
-export { schema, listAll, create, update, setDone, remove, uploadFile, attachmentFile, newClientToken as uuid };
+/**
+ * The "Fetch URL" column versus the briefs: { todo } rows whose link isn't their sharing link yet,
+ * and whether Fetch can write it (`formula`: Lark fills it, so its formula needs changing instead).
+ */
+function linkStatus(rows) {
+  const col = (schema.fields || []).find((f) => f.field_name === FIELD.fetchUrl);
+  if (!schema.checked || !col) return { todo: 0, formula: false, missing: !!schema.checked && !col };
+  const todo = (rows || []).filter((r) => r.fetchUrl !== shareUrl(r.id)).length;
+  return { todo, formula: col.type === T.formula, missing: false };
+}
+
+/** Point every brief's "Fetch URL" at its sharing link. Resolves with how many were updated. */
+const fixLinks = (rows) => auth.track(() => ops.fixLinks(call, table(), schema, rows));
+
+export { schema, listAll, create, update, setDone, remove, uploadFile, attachmentFile, linkStatus, fixLinks, newClientToken as uuid };

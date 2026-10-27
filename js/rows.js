@@ -10,7 +10,7 @@
  * emptied it. Select values go through matchOption against the live options.
  */
 import * as B from "./brief.js";
-import { RULES, LARK } from "./config.js";
+import { RULES, LARK, APP } from "./config.js";
 import { FIELD, COLUMNS, SINGLE_SELECTS, MULTI_SELECTS, DONE } from "./schema.js";
 import { plain, clean, matchOption, toLarkDay, fromLarkDay, canon, sameCell, cellSig } from "./cells.js";
 
@@ -83,6 +83,7 @@ export function fromRecord(rec) {
       .filter((a) => a && a.file_token)
       .map((a) => ({ token: a.file_token, name: a.name || "file", size: a.size || 0 })),
     modified: typeof f[FIELD.modified] === "number" ? f[FIELD.modified] : null,
+    fetchUrl: urlOf(f[FIELD.fetchUrl]),
     sig: sigs(f),
   };
 }
@@ -233,3 +234,18 @@ export function fileRequest(fields, fileToken, tableId) {
   if (typeof a.url === "string" && (a.url === endpoint || a.url.startsWith(`${endpoint}?`))) return a.url;
   return `${endpoint}?extra=${encodeURIComponent(JSON.stringify({ bitablePerm: { tableId } }))}`;
 }
+
+// ---- the sharing link ("Fetch URL" column) -------------------------------------------------
+/** A brief's sharing link: the hosted page's read-only view of it. */
+export const shareUrl = (recordId, base = APP.url) =>
+  `${base.replace(/#.*$/, "").replace(/\/?$/, "/")}#/share/${encodeURIComponent(recordId)}`;
+
+/** The address in a URL, text or formula cell. */
+export function urlOf(v) {
+  if (v && typeof v === "object" && !Array.isArray(v) && typeof v.link === "string") return v.link;
+  if (Array.isArray(v) && v.length && v[0] && typeof v[0].link === "string") return v[0].link;
+  return plain(v).trim();
+}
+
+/** The cell to write for a link, by the column's type in Lark (URL: { link, text }; text: the address). */
+export const linkCell = (url, type) => (type === 15 ? { link: url, text: url } : url);

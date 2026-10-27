@@ -30,6 +30,8 @@ let root = null, model = null, onChange = () => {}, pop = null;
 // "Check sources" mode: { has(path), pick(path, el) } while on. Fields stop being editable and
 // a click (or Enter / Space) asks the page to show where the value came from.
 let checking = null;
+// Read-only (a shared brief): shown as a document, nothing can be changed.
+let readOnly = false;
 const GRIP = '<svg viewBox="0 0 10 16" width="10" height="16"><g fill="currentColor"><circle cx="2.5" cy="3" r="1.5"/>'
   + '<circle cx="7.5" cy="3" r="1.5"/><circle cx="2.5" cy="8" r="1.5"/><circle cx="7.5" cy="8" r="1.5"/>'
   + '<circle cx="2.5" cy="13" r="1.5"/><circle cx="7.5" cy="13" r="1.5"/></g></svg>';
@@ -62,8 +64,8 @@ function ed(path, opts = {}) {
   const el = h(opts.tag || "span", {
     class: `ed${missing ? " is-missing" : ""}${opts.cls ? " " + opts.cls : ""}${src ? " has-src" : ""}`,
     "data-path": path,
-    "data-placeholder": opts.placeholder || B.NS,
-    ...(checking
+    "data-placeholder": readOnly ? (/click|add/i.test(opts.placeholder || "") ? B.NS : opts.placeholder || B.NS) : opts.placeholder || B.NS,
+    ...(readOnly && !checking ? { "aria-label": opts.label || null } : checking
       ? { tabindex: src ? "0" : "-1", role: "button", "aria-label": `${opts.label || "Value"}: ${src ? "show source" : "no source"}` }
       : { contenteditable: PLAINTEXT ? "plaintext-only" : "true", spellcheck: "true", role: "textbox", "aria-label": opts.label || null }),
   });
@@ -271,7 +273,7 @@ function removeItem(name, i, focusPrev = true) {
 
 function onKeydown(e) {
   const el = e.target.closest?.(".ed");
-  if (!el || e.isComposing) return;
+  if (!el || e.isComposing || (readOnly && !checking)) return;
   if (checking) {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
@@ -360,7 +362,7 @@ function moveItem(name, from, to, focusHandle = false) {
 }
 
 function onDragStart(e) {
-  if (checking) return;
+  if (checking || readOnly) return;
   const handle = e.target.closest(".item-drag");
   if (!handle || e.button > 0) return;
   e.preventDefault();
@@ -425,6 +427,7 @@ function onClick(e) {
     }
     return;
   }
+  if (readOnly) return;
   const btn = e.target.closest("button");
   if (!btn || !root.contains(btn)) return;
   if (btn.dataset.clar) {
@@ -547,6 +550,14 @@ function setChecking(cfg) {
   if (model) render(model);
 }
 
+/** Show the document read-only (true) or editable (false), and re-render. */
+function setReadOnly(on) {
+  if (readOnly === !!on) return;
+  readOnly = !!on;
+  root.classList.toggle("is-readonly", readOnly);
+  if (model) render(model);
+}
+
 /** Mark the field whose source is showing (every copy of it: the title and client appear twice). */
 function markActive(path) {
   root.querySelectorAll(".is-src-active").forEach((el) => el.classList.remove("is-src-active"));
@@ -555,4 +566,4 @@ function markActive(path) {
     .forEach((el) => el.classList.add("is-src-active"));
 }
 
-export { mount, render, closePopover as close, setChecking, markActive };
+export { mount, render, closePopover as close, setChecking, setReadOnly, markActive };

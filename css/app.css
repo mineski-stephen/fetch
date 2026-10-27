@@ -424,6 +424,17 @@ div.ed { display: block; }
 }
 
 /* ---- responsive: tablet layout and the phone bottom action bar ------------------------- */
+/* ---- a shared brief (#/share/<id>): view only ---------------------------------------------- */
+.paper.is-readonly .item-add, .paper.is-readonly .item-del, .paper.is-readonly .item-drag,
+.paper.is-readonly .clar-bar, .paper.is-readonly .clar-toggle, .paper.is-readonly .doc-chip .i { display: none; }
+.paper.is-readonly .ed { cursor: text; -webkit-user-modify: read-only; }
+.paper.is-readonly .ed:hover, .paper.is-readonly .ed:focus { background: none; box-shadow: none; }
+.paper.is-readonly .doc-chip { cursor: default; pointer-events: none; }
+.split.is-shared #saveBtn, .split.is-shared #nsAddForm, .split.is-shared #attAddBtn, .split.is-shared .att-x,
+.split.is-shared #resetBtn { display: none !important; }
+.split.is-shared .chip-opt { pointer-events: none; }
+.split.is-shared .chip-opt[aria-pressed="false"], .split.is-shared .chip-opt[aria-checked="false"] { opacity: .5; }
+
 /* ---- Check sources: click a value to see the passage it came from ------------------------ */
 .paper-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 12px; }
 .paper-tools .btn[aria-pressed="true"] { background: var(--brand); color: var(--on-brand); border-color: transparent; }
@@ -541,7 +552,8 @@ div.ed { display: block; }
 
 @media (max-width: 1024px) {
   .split > aside { grid-template-columns: 1fr 1fr; align-items: start; }
-  .split > aside > .actions { grid-column: 1 / -1; grid-template-columns: repeat(3, 1fr); }
+  .split > aside > .actions { grid-column: 1 / -1; display: flex; }   /* 3 or 4 buttons, side by side */
+  .split > aside > .actions .btn { flex: 1 1 0; min-width: 0; }
   .actions .btn-block { justify-content: center; }
 }
 @media (max-width: 640px) {
@@ -556,7 +568,7 @@ div.ed { display: block; }
   .split > aside { grid-template-columns: 1fr; }
   .split > aside > .actions {
     position: fixed; z-index: 40; left: 0; right: 0; bottom: 0;
-    grid-template-columns: 1.3fr 1fr 1fr; gap: 8px;
+    display: flex; gap: 8px;
     padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
     border-radius: 20px 20px 0 0; border-bottom: 0;
     box-shadow: 0 -12px 30px -16px rgba(var(--shadow-rgb), .35);

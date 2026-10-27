@@ -9,6 +9,18 @@ or links stop working), add an entry here with the same number and the date,
 and say what changed in the team's words. `npm run check:shell` fails if the
 two numbers differ.
 
+## 1.2.0 · Oct 27, 2026
+
+- **Sharing links.** Every filed brief has a view-only page,
+  `…/fetch/#/share/<record>`: the brief as a document, its attachments
+  downloadable, nothing editable. **Copy sharing link** (with Save, Copy and PDF)
+  copies it. People still log in with Lark and need access to the briefs table.
+- **Fetch URL in Lark.** The new “Fetch URL” column holds each brief's sharing
+  link: written when a brief is filed, corrected whenever it's saved, and
+  **Update them** in All briefs rewrites old links (`#/briefs/…`) or empty
+  ones in one go. The column can be a URL or Text column; as a formula, All
+  briefs shows the formula to use instead.
+
 ## 1.1.0 · Oct 26, 2026
 
 - **Check sources shows where every point came from.** Each value and bullet,

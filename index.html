@@ -279,6 +279,9 @@
             <button type="button" class="btn btn-block" id="pdfBtn">
               <span class="i" data-icon="download" aria-hidden="true"></span> <span class="label">Download PDF</span><span class="label-short">PDF</span>
             </button>
+            <button type="button" class="btn btn-block has-badge" id="shareBtn" hidden title="A view-only link to this brief, for anyone who can open the briefs table">
+              <span class="i" data-icon="link" aria-hidden="true"></span> <span class="label">Copy sharing link</span><span class="label-short">Link</span>
+            </button>
           </div>
           <section class="card card-pad stack src-panel" id="srcPanel" aria-labelledby="srcTitle" hidden>
             <div class="card-head">
@@ -364,6 +367,11 @@
         </div>
       </div>
       <p class="list-status" id="briefsStatus" aria-live="polite"></p>
+      <div class="callout callout-warn" id="linkFix" hidden role="status">
+        <span class="i" data-icon="link" aria-hidden="true"></span>
+        <div><p id="linkFixText"></p></div>
+        <button type="button" class="btn btn-sm" id="linkFixBtn" hidden>Update them</button>
+      </div>
       <div class="grid" id="briefGrid"></div>
       <details class="done-group" id="doneGroup" hidden>
         <summary><span class="i" data-icon="doneCircle" aria-hidden="true"></span> Done <span class="done-count" id="doneCount"></span></summary>
