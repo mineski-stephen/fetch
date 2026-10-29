@@ -20,6 +20,7 @@ import * as paper from "./doc.js";   // not "doc": that name is used for the ope
 import * as E from "./evidence.js";
 import * as sources from "./sources.js";
 import * as docs from "./docview.js";
+import * as BN from "./bundle.js";
 import * as pdf from "./pdf.js";
 import { createSettingsView, fmtLeft, fmtTime } from "./settings-view.js";
 import * as settings from "./settings.js";
@@ -27,7 +28,7 @@ import { cfg, geminiKey } from "./settings.js";
 import { larkService, geminiService, onAnyService, blockedHosts, describe } from "./net.js";
 import { describeWrite, isUncertain, LarkError } from "./errors.js";
 import { APP, ENV_LABEL, RULES, LARK } from "./config.js";
-import { sigs, shareUrl } from "./rows.js";
+import { sigs, shareUrl, FIELD } from "./rows.js";
 import { ICONS } from "./icons.js";
 import { $, $$, h, ic, fillIcons, toast, busy, flashDone, popBadge, copyText, flash, openMenu, closeMenu, confirmDanger,
          radioKeys, confetti, store, recall, reduceMotion } from "./ui.js";
@@ -630,11 +631,13 @@ async function startExtraction() {
     autoRetry.used = false;
     const model = B.normalize(res.brief);
     const clientToken = lark.uuid();
+    if (S.draft) sources.drop(S.draft.clientToken);   // the files of the draft this one replaces
     setDraft({
       model, original: clone(model), meta: res.meta, createdAt: Date.now(), clientToken,
       newer: B.isNewer(res.brief),   // made by a newer extraction service than this page knows: don't save from here
       sources: [...files.map((f) => f.name), ...(text ? ["Typed / pasted text"] : [])], nextSteps: [],
-      // Where each value came from ("Check sources"); null from a service older than 1.6. Never sent to Lark.
+      // Where each value came from ("Check sources"); null from a service older than 1.6. Goes to Lark
+      // only in the sources file, when the brief is filed (bundle.js).
       evidence: Array.isArray(res.evidence) ? res.evidence : null,
     });
     S.draftFiles = [...files, ...(text ? [new File([text], "Brief text.txt", { type: "text/plain" })] : [])];
@@ -916,6 +919,35 @@ async function openAttachment(doc, a, btn) {
   }
 }
 
+/**
+ * The draft's sources file (bundle.js), for Check sources and Brief files once it's filed:
+ * uploaded once, before the row is created. Resolves with [file_token], or [] when there is
+ * nothing to keep, the table has no "Fetch Files" column, or the upload failed (the brief is
+ * saved without it, and a toast says so).
+ */
+async function uploadSources(doc, label) {
+  const d = S.draft;
+  const column = lark.schema.checked && !lark.schema.missing.has(FIELD.fetchFiles);
+  if (!d?.evidence?.length || !column) return [];
+  if (!doc.sourcesToken) {
+    label.textContent = "Uploading sources…";
+    try {
+      const bundle = BN.pack(d, sources.kept(d), attachedList(doc));
+      doc.sourcesToken = await auth.track(lark.uploadFile(await BN.encode(bundle)));
+      doc.sourcesBundle = bundle;
+      doc.sourcesFailed = false;
+    } catch (err) {
+      if (err.deadToken) throw err;
+      console.warn("The sources file didn't upload:", err);
+      doc.sourcesFailed = true;
+      return [];
+    } finally {
+      label.textContent = "Saving…";
+    }
+  }
+  return [doc.sourcesToken];
+}
+
 /** Upload attachments that aren't in Lark yet. Every file is tried; the row is written only when
  *  none failed (see confirmSave). Returns the ones that failed, as { name, why }. A login that
  *  ends mid-way throws instead. */
@@ -965,9 +997,7 @@ function openDoc(doc) {
   $('[data-view="result"] .split').classList.toggle("has-files", (doc.attachments || []).length > 0);
   document.body.classList.toggle("is-shared-view", doc.shared);
   $("#shareBtn").hidden = doc.mode !== "record";
-  $("#checkBar").hidden = !(doc.mode === "draft" && Array.isArray(S.draft?.evidence));
-  $("#checkBtn").disabled = !S.draft?.evidence?.length;
-  $("#checkBtn").title = S.draft?.evidence?.length ? "" : "Gemini didn't quote any sources for this brief.";
+  renderCheckBar();
   setTitle(B.isMissing(doc.model.project_title) ? "Brief" : B.normalize(doc.model).project_title);
   const sheet = $("#paper");   // sections animate in only when a brief is opened
   sheet.classList.add("paper-enter");
@@ -1037,13 +1067,68 @@ function onDocChange() {
   refreshResult();
 }
 
-// ---- Check sources (new drafts only): click a value to see where it came from ---------
+// ---- Check sources: click a value to see where it came from ---------------------------
 const NARROW = matchMedia("(max-width: 1024px)");   // the aside stacks below the paper: use a dialog
 let srcFocus = null;
 
+/** What the open brief's sources are: the draft's, or a filed brief's sources file (once loaded). */
+const srcOf = () => (S.doc?.mode === "draft" ? S.draft : S.doc?.src) || null;
+
+function renderCheckBar() {
+  const d = srcOf();
+  $("#checkBar").hidden = !Array.isArray(d?.evidence);
+  $("#checkBtn").disabled = !d?.evidence?.length;
+  $("#checkBtn").title = d?.evidence?.length ? "" : "Gemini didn't quote any sources for this brief.";
+}
+
+const bundles = new Map();   // sources file token -> Promise<bundle>
+let filedSources = null;     // the client token of the filed brief whose files are kept
+
+/**
+ * A filed brief's sources file (its "Fetch Files" column): downloaded once per tab, then
+ * Check sources and Brief files work as on a draft. The brief's own files are downloaded
+ * from its Attachments the first time one is shown. Briefs filed without one show neither.
+ */
+async function loadSources(doc) {
+  const att = (doc.fetchFiles || []).find(BN.isBundle);
+  if (!att) return;
+  if (!bundles.has(att.token)) {
+    const p = auth.track(lark.attachmentFile(doc.id, att.token, FIELD.fetchFiles)).then((got) => {
+      if (!got.blob) throw new Error("Lark wouldn't send the sources file through the connection service.");
+      return BN.decode(got.blob);
+    });
+    bundles.set(att.token, p);
+    p.catch(() => bundles.delete(att.token));
+  }
+  let b;
+  try {
+    b = await bundles.get(att.token);
+  } catch (err) {
+    console.warn("Couldn't load this brief's sources:", err);
+    return;
+  }
+  if (S.doc !== doc) return;
+  b.clientToken ||= `record:${doc.id}`;
+  if (filedSources && filedSources !== b.clientToken && filedSources !== S.draft?.clientToken) sources.drop(filedSources);
+  filedSources = b.clientToken;
+  sources.attach(b.clientToken, { texts: b.texts, typed: b.typed, load: (name) => downloadSource(doc, b, name) });
+  doc.src = b;
+  renderCheckBar();
+}
+
+/** One of a filed brief's own files, from its Attachments: a File, or null if it isn't there any more. */
+async function downloadSource(doc, b, name) {
+  const files = doc.savedAttachments || doc.attachments || [];
+  const a = files.find((x) => x.token === b.files?.[name]) || files.find((x) => x.name === name);
+  if (!a) return null;
+  const got = await auth.track(lark.attachmentFile(doc.id, a.token));
+  if (!got.blob) throw new Error(`Lark wouldn't send “${name}” through the connection service. Download it from the Attachments card instead.`);
+  return new File([got.blob], name, { type: got.blob.type });
+}
+
 function setChecking(on) {
-  const d = S.draft;
-  on = !!(on && S.doc?.mode === "draft" && d?.evidence?.length);
+  const d = srcOf();
+  on = !!(on && d?.evidence?.length);
   if (on === S.checking) return;
   S.checking = on;
   $("#checkBtn").setAttribute("aria-pressed", String(on));
@@ -1071,7 +1156,7 @@ function showSourceHint() {
 }
 
 function openSource(path, el) {
-  const d = S.draft;
+  const d = srcOf();
   if (!S.checking || !d) return;
   paper.markActive(path);
   const narrow = NARROW.matches;
@@ -1094,7 +1179,7 @@ function openSource(path, el) {
 // The summary field an evidence entry names, as it is now: list items may have moved or changed.
 const EV_LISTS = ["objectives", "target_audience", "kpis", "key_dates", "scope_of_work", "notes"];
 function currentPathOf(field) {
-  const d = S.draft, m = S.doc?.model;
+  const d = srcOf(), m = S.doc?.model;
   if (!d || !m) return null;
   const [name, i] = field.split(".");
   if (EV_LISTS.includes(name) && /^\d+$/.test(i ?? "")) {
@@ -1116,7 +1201,7 @@ function fieldElement(path) {
 
 /** { label, text, canReveal } of a summary field, for the brief files' cards. */
 function describeField(field) {
-  const d = S.draft, m = S.doc?.model || d.model;
+  const d = srcOf(), m = S.doc?.model || d.model;
   const path = currentPathOf(field);
   const get = (p) => p.split(".").reduce((o, k) => (o == null ? o : o[k]), m);
   const textOf = (v) => (v && typeof v === "object" ? Object.values(v).filter(Boolean).join(" - ") : String(v ?? ""));
@@ -1141,7 +1226,7 @@ function revealField(field) {
 
 function wireSources() {
   $("#checkBtn").onclick = () => setChecking(!S.checking);
-  $("#docsBtn").onclick = () => S.draft && docs.open({ draft: S.draft, describe: describeField, onReveal: revealField });
+  $("#docsBtn").onclick = () => srcOf() && docs.open({ draft: srcOf(), describe: describeField, onReveal: revealField });
   $("#srcClose").onclick = () => { setChecking(false); $("#checkBtn").focus(); };
   $("#srcDialogClose").onclick = () => $("#srcDialog").close();
   $("#srcDialog").addEventListener("click", (e) => { if (e.target === e.currentTarget) e.currentTarget.close(); });
@@ -1319,8 +1404,9 @@ async function confirmSave({ skipFailed = false } = {}) {
     let res, row;
     if (isNew) {
       const me = auth.user() || await auth.loadUser().catch(() => null);   // never write a blank "Filed by"
+      const fetchFiles = await uploadSources(doc, label);
       res = await lark.create(stateOf(doc.model, { ...doc, attachments: tokens }),
-        { filedBy: (me && me.name) || "", sources: (doc.sources || []).join("\n") }, S.draft?.clientToken);
+        { filedBy: (me && me.name) || "", sources: (doc.sources || []).join("\n"), fetchFiles }, S.draft?.clientToken);
       row = res.row;
     } else {
       const was = { nextSteps: doc.savedNextSteps, requirement: doc.savedRequirement, vat: doc.savedVat,
@@ -1351,9 +1437,11 @@ async function confirmSave({ skipFailed = false } = {}) {
   const { res, row, failed: left } = outcome;
   try {
     if (isNew) {
+      // The draft's files stay in memory for its sources file, so opening the brief needs no download.
+      if (doc.sourcesToken) bundles.set(doc.sourcesToken, Promise.resolve(doc.sourcesBundle));
+      else if (S.draft) sources.drop(S.draft.clientToken);
       setDraft(null);
       S.draftFiles = [];
-      sources.drop();
       S.highlight = row.id;
       upsertBrief(row, true);
     } else {
@@ -1375,6 +1463,7 @@ async function confirmSave({ skipFailed = false } = {}) {
     $("#saveDialog").close();
     const note = readBackNote(res);
     if (left.length) toast(`Saved without ${left.map((f) => f.name).join(", ")}.`, { type: "warn" });
+    if (isNew && doc.sourcesFailed) toast("Saved, but its sources didn't upload, so Check sources won't be available on this brief.", { type: "warn" });
     if (note.warn) toast(note.warn, { type: "warn", link: note.link });
     else if (isNew) {
       try { confetti($("#saveBtn")); } catch (_) { /* decoration only */ }   // once per milestone: the first save of a new brief
@@ -1435,7 +1524,11 @@ function loadBriefs() {
       cacheBriefs();
       updateWriteNote();
       status.replaceChildren();
-      if (S.view === "result" && S.doc?.mode === "record") refreshResult();
+      if (S.view === "result" && S.doc?.mode === "record") {
+        refreshResult();
+        const fresh = !S.doc.src && S.briefs.find((x) => x.id === S.doc.id);   // opened from an older cached list
+        if (fresh?.fetchFiles?.length) { S.doc.fetchFiles = fresh.fetchFiles; loadSources(S.doc); }
+      }
       if (S.view === "briefs") renderBriefs();
       return list;
     })
@@ -1688,8 +1781,9 @@ async function showRecord(id, { shared = false } = {}) {
     }
   }
   const e = shared ? null : S.edits[id];
-  openDoc({
-    mode: "record", id, shared, fetchUrl: b.fetchUrl || "", model: clone(e?.model || b.model), original: clone(b.model),
+  const doc = {
+    mode: "record", id, shared, fetchUrl: b.fetchUrl || "", fetchFiles: b.fetchFiles || [],
+    model: clone(e?.model || b.model), original: clone(b.model),
     status: b.status, filedBy: b.filedBy, sources: b.sources,
     nextSteps: e?.nextSteps || b.nextSteps || [], attachments: e?.attachments || b.attachments || [],
     requirement: e ? e.requirement : b.requirement || "", vat: e ? e.vat : b.vat || "",
@@ -1697,7 +1791,9 @@ async function showRecord(id, { shared = false } = {}) {
     savedRequirement: b.requirement || "", savedVat: b.vat || "",
     requirementRaw: b.requirementRaw || "", vatRaw: b.vatRaw || "",
     sig: e?.sig || b.sig, newer: !!b.newer,   // what Lark held when this was opened (or when the edits began)
-  });
+  };
+  openDoc(doc);
+  loadSources(doc);
 }
 
 function wireBriefs() {

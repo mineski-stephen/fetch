@@ -216,6 +216,7 @@ project-brief/                     ← the repository root = the website root
 │   ├── docview.js                 "Brief files": every file in full, search, the summary's passages marked, cards back to the summary
 │   ├── viewport.js                Pan-and-zoom box for one page: wheel / pinch zoom, drag, keys, fit a passage to the width
 │   ├── evidence.js                Which passages belong to a field, after reorders and edits (pure)
+│   ├── bundle.js                  The sources file kept with a filed brief in "Fetch Files" (gzipped JSON)
 │   ├── match.js                   Finding a quote or search phrase in a page, text or OCR words, typo-tolerant (pure)
 │   ├── ui.js                      Shared helpers: toasts, menus, sheets, busy buttons, theme (copied unedited)
 │   └── icons.js                   Shared inline SVG icons (copied unedited)
@@ -344,11 +345,27 @@ e-mails and other text). If Gemini refuses to quote (its recitation filter), the
 service retries once without passages so the extraction still succeeds. The
 passages add roughly 2-4k output tokens (about 5-15 seconds) to an extraction.
 
-**Where they are kept.** `evidence` is stored with the draft (`fetch.draft`, a
-few KB) and never written to Lark; the brief's own shape (schema v1) is
-unchanged. The files and `texts` stay in the tab's memory only (`sources.js`
-`attach`), so after a reload a passage still shows as text and **Add “file”
-again** brings back the highlights. Saving the brief forgets them.
+**Where they are kept.** On a draft, `evidence` is stored with the draft
+(`fetch.draft`, a few KB). The files and `texts` stay in the tab's memory only
+(`sources.js` `attach`), so after a reload a passage still shows as text and
+**Add “file” again** brings back the highlights.
+
+**After filing** (`js/bundle.js`). When a draft with passages is saved, Fetch
+uploads one more file, `fetch-sources.json.gz`, into the row's *Fetch Files*
+column, before the row is created. It is gzipped JSON holding the passages, the
+brief as extracted (so edited bullets still find theirs), which source is which
+attachment, the converted text of Office files and e-mails, and the typed text.
+It is usually a few KB; a long Word or Excel brief adds its text (the service
+caps that at 600k characters, which gzips to roughly a quarter). The files
+themselves aren't copied: they're already in *Attachments*. Opening a filed
+brief, or its sharing link, downloads the sources file once per tab and shows
+**Check sources** and **Brief files** as on a draft; a PDF or image is
+downloaded from *Attachments* the first time it's shown (*Downloading “RFP.pdf”
+from Lark…*). The brief's own shape (schema v1) is unchanged. If the sources
+file can't be uploaded, the brief is still saved and a message says Check
+sources won't be available on it. Briefs filed before 1.3.0, or into a table
+without the column, have no **Check sources** button. A file removed from
+*Attachments* since shows **Add a copy** instead.
 
 **Finding a passage in the file** (`js/match.js`). The passage is located in the
 file itself: a PDF's text layer (pdf.js), the words Tesseract.js reads from a
@@ -391,6 +408,7 @@ scan is read, then reads a page in a few seconds. The page's CSP allows
 per value, notes included, from 1.7.0. Each entry also carries its first
 passage at the top level, so pages and services of either version work
 together. A draft extracted before 1.6.0 has no **Check sources** button.
+Filed briefs have them from page 1.3.0, with the *Fetch Files* column.
 
 ---
 
@@ -421,6 +439,7 @@ page checks them against it on every load (see [Schema check](#schema-check)):
 | Done | Single select | **Yes** or **No**. Set from the page (right-click a card, or its ⋯ button → *Mark as Done* / *Mark as Not Done*) or in Lark. **Yes** moves the brief out of the main list into the collapsed **Done** section (newest filed first). **No** or empty keeps it in the list. New rows start as **No**. |
 | **Brief JSON** | Text | **The source of truth the page renders from. Don't edit it by hand.** |
 | Last Modified | Modified time | Automatic. |
+| Fetch Files | Attachment | What **Check sources** and **Brief files** need on a filed brief: one `fetch-sources.json.gz` (gzipped JSON, usually a few KB; see [Check sources](#check-sources)). Optional: without it, filed briefs just don't offer them. Written once, when the brief is filed; never shown in the Attachments card. Don't edit or remove it by hand. |
 | Fetch URL | URL (or Text, or Formula) | The brief's **sharing link**, `https://mineski-stephen.github.io/fetch/#/share/<record id>` (the hosted address is `APP.url` in `js/config.js`, so links made from a local copy still point to the real site). Optional. Written right after a brief is filed (a second, best-effort write: Lark only gives the record id once the row exists) and corrected whenever a brief is saved. Old or empty links: **All briefs** shows "N briefs don't link to their view-only page…" with **Update them**, which rewrites only this cell, in batches of 500. As a URL column the cell is a link, as Text the plain address; as a Formula Fetch only reads it, and All briefs gives the formula to use: `"https://mineski-stephen.github.io/fetch/#/share/" & RECORD_ID()`. |
 
 **Where edits belong.** The page renders each brief from `Brief JSON`; the
@@ -602,8 +621,8 @@ variable (see `tech/lark-proxy/README.md`).
    **Brief files** (next to it) opens the whole brief over the page: every
    file in full, a search box, and every passage the summary used marked in
    yellow. Click one to see which parts of the summary it became, and **Show
-   in summary** to jump there. Both work on a new brief until you save it;
-   filed briefs are assumed checked. More in [Check sources](#check-sources).
+   in summary** to jump there. Both also work on filed briefs and sharing
+   links (filed from 1.3.0 on). More in [Check sources](#check-sources).
 4. **Copy for group chat** → paste it in the chat. **Download PDF** for a file.
 5. **Save to Lark Base** → check the summary → **Save to Lark**. You land on
    **All briefs**, with your new brief highlighted.
@@ -768,10 +787,13 @@ changed and every other row is untouched.
   it used while it writes the summary (no second call, no second upload), copied
   word for word; the page then finds them in the user's own file. Gemini is never
   trusted for positions, so a passage it misquotes is labelled, not misplaced.
-- **Files stay in the tab.** Check sources needs the files, but keeping client
-  documents in browser storage on a shared origin isn't worth it: they live in
-  memory until the brief is saved or the tab closes; the passages themselves (a few
-  KB of text) survive a reload with the draft.
+- **Files stay in the tab, or in Lark.** Check sources needs the files, but keeping
+  client documents in browser storage on a shared origin isn't worth it: a draft's
+  live in memory until the tab closes; the passages themselves (a few KB of text)
+  survive a reload with the draft. Once filed, they're in Lark with the brief: the
+  files in *Attachments* (as before) and the passages and converted text in one
+  small file in *Fetch Files*, not in a text column, so the table stays readable
+  and no cell limit is near.
 
 **UX**
 
@@ -830,9 +852,11 @@ changed and every other row is untouched.
   `connect-src` lists only the page itself, the two services, Google (to test a key), jsDelivr
   (the *Check sources* viewer's fonts, character maps and OCR data; nothing is sent there),
   `data:` and this computer (for the test addresses); this alone stops a token being sent anywhere else.
-- **Check sources keeps files in memory only.** The quotes travel with the draft
-  (`fetch.draft`, a few KB); the files and their converted text stay in the tab's
-  memory and are gone on reload or save. Nothing about them is stored in Lark.
+- **Check sources keeps files in memory, or in Lark.** On a draft, the quotes travel
+  with it (`fetch.draft`, a few KB); the files and their converted text stay in the
+  tab's memory and are gone on reload. When the brief is filed, the quotes and
+  converted text go into the row's *Fetch Files* column, readable by whoever can
+  read the table, which already holds the files themselves in *Attachments*.
 - **Log out is local.** Lark has no way to revoke a token, so *Log out* forgets it
   (and the cached briefs) in this browser only. The token stays valid until it expires (about 2 hours).
 - **The cached list of briefs** (`fetch.cache.<app>:<table>`) lets the page paint at
@@ -886,7 +910,8 @@ changed and every other row is untouched.
 | ------- | ---------- |
 | *Port 9124 is already in use, so this server didn't start.* (`tools/serve.py`), or the browser says *127.0.0.1 didn't send any data* | Another server already has port 9124, often an old one left running in the background. Stop it (close its window, or end the `python` process in Task Manager), then run `python tools/serve.py` again. Lark login only works on port 9124. |
 | A yellow bar: "**Setup needed:** add your Gemini API key to start extracting briefs." | The extraction service has no shared key and you haven't added yours. Click the bar and paste your key in Settings. |
-| No **Check sources** button | The brief was extracted by a service older than 1.6.0, or it's a filed brief (the button is for new drafts only). |
+| No **Check sources** button | The brief was extracted by a service older than 1.6.0, or it's a filed brief without a sources file: filed before 1.3.0, into a table with no *Fetch Files* column, or its sources didn't upload (a message said so when it was saved). On a filed brief, the button appears a moment after the brief opens, once its sources file has downloaded. |
+| Check sources on a filed brief: "isn't attached to this brief in Lark any more" | The file was removed from *Attachments* since. **Add a copy** shows it from your computer (in this tab only). |
 | Brief files: "Add “file” again" | The page was reloaded since the extraction, so the file isn't in memory any more. Add the same file (same name) and it opens. |
 | The source viewer moves or zooms instead of scrolling the panel | That's the viewer: the wheel zooms and dragging moves the page. Scroll the panel with the wheel outside the grey viewer, or with its scroll bar. |
 | Check sources shows only one passage per value | The extraction service is 1.6.0. Deploy 1.7.0 (`render/gemini-pdf`) for several passages per value, and for notes. |

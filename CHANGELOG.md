@@ -9,6 +9,17 @@ or links stop working), add an entry here with the same number and the date,
 and say what changed in the team's words. `npm run check:shell` fails if the
 two numbers differ.
 
+## 1.3.0 · Oct 29, 2026
+
+- **Check sources and Brief files on filed briefs.** Saving a brief now also
+  keeps its sources in Lark: one small file (`fetch-sources.json.gz`, usually a
+  few KB) in the new **Fetch Files** column, with the passages and the text read
+  from Word, PowerPoint, Excel and e-mails. The files themselves are the ones
+  already in Attachments. Reopen the brief, or open its sharing link, and both
+  buttons are there; each file is downloaded from Lark the first time it's shown.
+  Works for briefs filed from this version on. Without the column, filed briefs
+  just don't offer them.
+
 ## 1.2.1 · Oct 29, 2026
 
 - **Sharing links log you in by themselves.** Opening one while logged out goes

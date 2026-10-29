@@ -57,6 +57,9 @@ export const COLUMNS = [
   // The brief's sharing link (#/share/<record id>). Fetch writes it as a URL or text; as a formula
   // (built from RECORD_ID()) Lark fills it, and Fetch only reads it.
   { key: "fetchUrl", name: "Fetch URL", type: T.url, types: [T.url, T.text, T.formula], optional: true },
+  // What "Check sources" and "Brief files" need once the draft is filed: one small gzipped JSON
+  // file (bundle.js). Without the column, filed briefs simply don't offer them.
+  { key: "fetchFiles", name: "Fetch Files", type: T.attachment, optional: true },
 ];
 
 export const TABLE_TITLE = "Briefs";
@@ -71,7 +74,7 @@ export function tableSpec() {
   for (const c of COLUMNS) {
     (c.optional ? optional : fields)[c.name] = c.types || c.type;
     if (c.need) options[c.name] = c.need;
-    if (c.optional && c.type !== T.modified && c.key !== "fetchUrl") neededBy[c.key] = [c.name];
+    if (c.optional && c.type !== T.modified && c.key !== "fetchUrl" && c.key !== "fetchFiles") neededBy[c.key] = [c.name];
   }
   return {
     title: TABLE_TITLE, fields, optional, options,

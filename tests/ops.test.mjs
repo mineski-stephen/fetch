@@ -305,3 +305,22 @@ test("fixLinks points every old or empty Fetch URL at the sharing view, and only
   assert.ok(again.every((r) => r.fetchUrl === SHARE(r.id)));
   assert.equal(await ops.fixLinks(call, TABLE, schema, again), 0);
 });
+
+// ---- the sources file in "Fetch Files" ------------------------------------------------------
+test("a new brief can carry its sources file in Fetch Files; without it the cell is left out", async () => {
+  const call = fakeLark();
+  const { schema } = await ops.loadBriefs(call, TABLE);
+  const made = await ops.createBrief(call, TABLE, schema, st(), { filedBy: "Ana", sources: "a.pdf", clientToken: "tok-F", fetchFiles: ["src1"] });
+  assert.deepEqual(made.row.fetchFiles.map((f) => f.token), ["src1"]);
+  const plain = await ops.createBrief(call, TABLE, schema, st(), { filedBy: "Ana", sources: "a.pdf", clientToken: "tok-G" });
+  assert.equal(call.state.records.find((r) => r.record_id === plain.recordId).fields[FIELD.fetchFiles], undefined);
+  assert.deepEqual(plain.row.fetchFiles, []);
+});
+
+test("a table without Fetch Files is fine: nothing is reported missing", async () => {
+  const call = fakeLark({ fields: liveFields((fs) => fs.filter((f) => f.field_name !== FIELD.fetchFiles)) });
+  const { schema } = await ops.loadBriefs(call, TABLE);
+  assert.deepEqual(schema.problems, []);
+  assert.ok(!schema.partial.some((p) => p.includes(FIELD.fetchFiles)));
+  assert.ok(schema.missing.has(FIELD.fetchFiles));
+});

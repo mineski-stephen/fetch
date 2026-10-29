@@ -435,7 +435,8 @@ div.ed { display: block; }
 .split.is-shared #resetBtn { display: none !important; }
 .split.is-shared .chip-opt { pointer-events: none; }
 /* the sharing view shows the document only, and the Attachments card when there are files */
-.split.is-shared > aside > :not(#attCard) { display: none !important; }
+.split.is-shared > aside > :not(#attCard):not(#srcPanel) { display: none !important; }
+.split.is-shared.is-checking:not(.has-files) > aside { display: grid; }   /* Check sources needs the column */
 .split.is-shared:not(.has-files) { grid-template-columns: minmax(0, 1fr); }
 .split.is-shared:not(.has-files) > aside { display: none; }
 body.is-shared-view[data-view="result"] main { padding-bottom: 24px; }   /* no phone action bar to clear */
@@ -545,7 +546,7 @@ body.is-shared-view[data-view="result"] main { padding-bottom: 24px; }   /* no p
 }
 
 @media (min-width: 1025px) {
-  .split.is-checking { grid-template-columns: minmax(0, 1fr) minmax(360px, 44%); }
+  .split.is-checking, .split.is-shared.is-checking:not(.has-files) { grid-template-columns: minmax(0, 1fr) minmax(360px, 44%); }
   .split.is-checking > aside > :not(.src-panel) { display: none; }   /* the source gets the whole column */
   .src-panel { display: flex; flex-direction: column; max-height: calc(100dvh - var(--topbar) - 120px); }
   .src-panel .card-head { margin-bottom: 0; }

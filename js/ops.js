@@ -46,8 +46,8 @@ export function linkCells(schema, recordId, current) {
 
 /** A new row, then a read-back. `state` is { model, nextSteps, requirement, vat, attachments: [token] }.
  *  The client token makes a retry idempotent: the same token returns the first record. */
-export async function createBrief(call, t, schema, state, { filedBy, sources, clientToken }) {
-  const fields = readyToWrite(schema, newRowCells(state, { filedBy, sources }));
+export async function createBrief(call, t, schema, state, { filedBy, sources, clientToken, fetchFiles }) {
+  const fields = readyToWrite(schema, newRowCells(state, { filedBy, sources, fetchFiles }));
   const rec = await createRecord(call, t, fields, clientToken);
   let back = await readBack(call, t, rec.record_id, fields);
   // Lark answered a replayed token with an older attempt's row: bring it up to the current payload.

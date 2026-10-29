@@ -86,19 +86,20 @@ async function uploadFile(file) {
 /**
  * One attachment of a filed brief, for downloading: { blob } (the file itself, fetched through
  * the proxy, so the page can save it under its own name) or, if Lark won't hand the bytes to
- * the proxy, { link } (a temporary address, valid about a day). The row is read again first:
+ * the proxy, { link } (a temporary address, valid about a day). `column`: the attachment column
+ * it's in (Attachments, or Fetch Files for the brief's sources). The row is read again first:
  * its cell says how to ask (the Base's permission context) and whether the file is still there.
  */
-async function attachmentFile(recordId, fileToken) {
+async function attachmentFile(recordId, fileToken, column = FIELD.attachments) {
   const t = table();
   const rec = await getRecord(call, t, recordId);
-  const direct = fileRequest(rec.fields, fileToken, t.table);
+  const direct = fileRequest(rec.fields, fileToken, t.table, column);
   if (!direct) throw new LarkError("gone", { json: { code: 404, msg: "This file is no longer attached to the brief in Lark. Reload the brief." } });
   try {
     return { blob: await larkDownload(direct, { token: token() }) };
   } catch (err) {
     if (err.deadToken) throw err;
-    const json = await call("GET", downloadRequest(rec.fields, fileToken, t.table), null, { read: true }).catch(() => null);
+    const json = await call("GET", downloadRequest(rec.fields, fileToken, t.table, column), null, { read: true }).catch(() => null);
     const link = downloadLink(json, fileToken);
     if (!link) throw err;
     return { link };

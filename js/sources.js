@@ -4,9 +4,11 @@
  *
  * The service returns, with each new draft, a short verbatim quote per value
  * (evidence) and the converted text of Office files and e-mails (texts). The files
- * themselves stay in this tab's memory only (attach/drop): nothing is kept in
+ * of a draft stay in this tab's memory only (attach/drop): nothing is kept in
  * browser storage, so after a reload the quote still shows and the file can be
- * added again to see it in place.
+ * added again to see it in place. A filed brief brings its quotes and texts from
+ * its "Fetch Files" column (bundle.js), and its files are downloaded from Lark the
+ * first time one is shown (attach's `load`).
  *
  *   PDF          pdf.js renders the page; its text layer locates the quote
  *                (scanned pages: OCR with Tesseract.js)
@@ -36,36 +38,66 @@ const SVGNS = "http://www.w3.org/2000/svg";
 const MAX_CANVAS_PX = 4e6;     // keeps phones from running out of memory on big pages
 const MAX_PAGES_SEARCHED = 80;
 
-// ---- the files behind the current draft (memory only) ----------------------------
-let store = null;   // { token, files: Map<name, File>, texts: (string|null)[], typed: string }
+// ---- the files behind a brief (memory only) ------------------------------------------
+// By the brief's client token: { files: Map<name, File>, texts: (string|null)[], typed, load?, loading }
+const stores = new Map();
 const pdfDocs = new Map();   // File -> Promise<PDFDocumentProxy>
 const pageCache = new WeakMap();   // PDFDocumentProxy -> Map<page, {units, scanned}>
 const ocrCache = new Map();        // File | "name:size:page" -> Map<langs, Promise<units>>
 
-/** Keep the files of a freshly extracted draft. Replaces whatever was kept before. */
-export function attach(token, { files = [], texts = [], typed = "" } = {}) {
-  drop();
-  store = { token, files: new Map(files.map((f) => [f.name, f])), texts: Array.isArray(texts) ? texts : [], typed };
+/**
+ * Keep the files of a brief: a freshly extracted draft's, or a filed one's (its `texts` and
+ * `typed` from the sources file, and `load(name)` to download a file when it's first shown).
+ * Files already kept under the same token stay.
+ */
+export function attach(token, { files = [], texts = [], typed = "", load = null } = {}) {
+  const had = stores.get(token);
+  const map = new Map(had ? had.files : []);
+  files.forEach((f) => map.set(f.name, f));
+  stores.set(token, { files: map, texts: Array.isArray(texts) ? texts : [], typed, load, loading: new Map() });
 }
 
-/** Forget the files (after a save, or when the draft is discarded). */
-export function drop() {
-  pdfDocs.forEach((p) => p.then((d) => d.destroy()).catch(() => {}));
-  pdfDocs.clear();
+/** Forget one brief's files (a token), or every brief's. */
+export function drop(token) {
+  const gone = token === undefined ? [...stores.values()] : [stores.get(token)].filter(Boolean);
+  const files = new Set(gone.flatMap((s) => [...s.files.values()]));
+  pdfDocs.forEach((p, f) => {
+    if (!files.has(f)) return;
+    p.then((d) => d.destroy()).catch(() => {});
+    pdfDocs.delete(f);
+  });
   ocrCache.clear();
-  store = null;
+  if (token === undefined) stores.clear(); else stores.delete(token);
 }
 
-/** Add a file back after a reload. True if it belongs to this draft. */
+/** Add a file back after a reload. True if it belongs to this brief. */
 export function addFile(draft, file) {
   const names = (draft.meta?.sources || []).map((s) => s.name);
   if (!names.includes(file.name)) return false;
-  if (store?.token !== draft.clientToken) store = { token: draft.clientToken, files: new Map(), texts: [], typed: "" };
-  store.files.set(file.name, file);
+  if (!stores.has(draft.clientToken)) attach(draft.clientToken);
+  stores.get(draft.clientToken).files.set(file.name, file);
   return true;
 }
 
-export const kept = (draft) => (store && store.token === draft.clientToken ? store : null);
+export const kept = (draft) => (draft && stores.get(draft.clientToken)) || null;
+
+/** A kept file, downloading it first if the brief is filed. Null if it can't be had. */
+export function fileOf(k, name) {
+  if (!k) return Promise.resolve(null);
+  if (k.files.has(name)) return Promise.resolve(k.files.get(name));
+  if (!k.load) return Promise.resolve(null);
+  if (!k.loading.has(name)) {
+    k.loading.set(name, Promise.resolve(k.load(name)).then((f) => {
+      if (f) k.files.set(name, f);
+      k.loading.delete(name);
+      return f || null;
+    }, (err) => { k.loading.delete(name); throw err; }));
+  }
+  return k.loading.get(name);
+}
+
+/** Will showing this file need a download first? */
+export const needsDownload = (k, name) => !!(k && k.load && !k.files.has(name));
 
 // ---- labels ---------------------------------------------------------------------
 const LABELS = {
@@ -617,9 +649,15 @@ export async function show(host, { res, draft, onAddFile }) {
     const src = sourceOf(draft, p);
     // This field's passages in the same file, highlighted together.
     const items = passages.filter((q) => q.source === p.source).map((q) => ({ quote: q.quote, page: q.page, active: q === p }));
-    const file = src && k?.files.get(src.name);
     const text = src?.kind === "typed" ? k?.typed : src ? k?.texts[src.index] : null;
     try {
+      const visual = src && (src.kind === "pdf" || src.kind === "image");
+      if (visual && needsDownload(k, src.name)) {
+        setStatus("loading", `Downloading “${src.name}” from Lark…`);
+        view.replaceChildren();
+      }
+      const file = visual ? await fileOf(k, src.name) : null;
+      if (stale()) return;
       if (src?.kind === "pdf" && file) await pdfView(view, file, items, setStatus, stale);
       else if (src?.kind === "image" && file) await imageView(view, file, items, setStatus, stale);
       else if (text) {
@@ -630,7 +668,8 @@ export async function show(host, { res, draft, onAddFile }) {
         const input = h("input", { type: "file", hidden: "", accept: src.kind === "pdf" ? ".pdf,application/pdf" : "image/*",
           onchange: () => input.files[0] && onAddFile?.(input.files[0]) });
         view.replaceChildren(h("div", { class: "src-empty" }, ic("file"),
-          h("p", {}, `The page was reloaded, so “${src.name}” isn't open any more. Add it again to see the passage in place.`),
+          h("p", {}, k?.load ? `“${src.name}” isn't attached to this brief in Lark any more. Add a copy to see the passage in place.`
+            : `The page was reloaded, so “${src.name}” isn't open any more. Add it again to see the passage in place.`),
           h("button", { type: "button", class: "btn btn-sm btn-tonal", onclick: () => input.click() }, ic("plus"), `Add “${src.name}”`),
           input));
       } else if (src && (src.kind === "audio" || src.kind === "video")) {
@@ -638,7 +677,8 @@ export async function show(host, { res, draft, onAddFile }) {
         view.replaceChildren(h("p", { class: "hint" }, `Gemini ${src.kind === "audio" ? "listened to" : "watched"} “${src.name}”, so there's no page to highlight. The passage above is what it heard.`));
       } else {
         setStatus("idle");
-        view.replaceChildren(h("p", { class: "hint" }, "The text of this file is only kept until the page reloads. The passage above is what Gemini read."));
+        view.replaceChildren(h("p", { class: "hint" }, k?.load ? "Fetch didn't keep the text of this file. The passage above is what Gemini read."
+          : "The text of this file is only kept until the page reloads. The passage above is what Gemini read."));
       }
       if (src?.hasBlobs && status.is("missing")) status.note("It may be in an image or attachment inside this file.");
     } catch (err) {

@@ -30,6 +30,10 @@ function matchChoice(choices, value) {
   return { key, raw: key ? "" : String(value).trim() };
 }
 
+/** The files in an attachment cell. Their links (url / tmp_url) expire, so they are never kept. */
+const filesOf = (cell) => (Array.isArray(cell) ? cell : []).filter((a) => a && a.file_token)
+  .map((a) => ({ token: a.file_token, name: a.name || "file", size: a.size || 0 }));
+
 /** A fingerprint of every column, so a save can tell what changed in Lark since the page read the row. */
 export const sigs = (fields) => Object.fromEntries(COLUMNS.map((c) => [c.name, cellSig((fields || {})[c.name])]));
 
@@ -79,11 +83,10 @@ export function fromRecord(rec) {
     requirement: req.key, requirementRaw: req.raw,
     vat: vat.key, vatRaw: vat.raw,
     // Attachment links (url / tmp_url) expire, so they are never kept.
-    attachments: (Array.isArray(f[FIELD.attachments]) ? f[FIELD.attachments] : [])
-      .filter((a) => a && a.file_token)
-      .map((a) => ({ token: a.file_token, name: a.name || "file", size: a.size || 0 })),
+    attachments: filesOf(f[FIELD.attachments]),
     modified: typeof f[FIELD.modified] === "number" ? f[FIELD.modified] : null,
     fetchUrl: urlOf(f[FIELD.fetchUrl]),
+    fetchFiles: filesOf(f[FIELD.fetchFiles]),
     sig: sigs(f),
   };
 }
@@ -140,9 +143,10 @@ function leaveBlanksOut(cells) {
 export const cellsOf = (state) => ({ ...briefCells(state.model), ...extraCells(state) });
 
 /** The cells for a brand-new row: the brief, its extras, who filed it, and the starting status. */
-export function newRowCells(state, { filedBy = "", sources = "" } = {}) {
+export function newRowCells(state, { filedBy = "", sources = "", fetchFiles = [] } = {}) {
   return leaveBlanksOut({
     ...cellsOf(state),
+    [FIELD.fetchFiles]: fetchFiles.map((t) => ({ file_token: t })),
     [FIELD.filedBy]: filedBy,
     [FIELD.sources]: sources,
     [FIELD.status]: RULES.newStatus,
@@ -203,8 +207,8 @@ const TMP_LINK_API = `${LARK.api}/drive/v1/medias/batch_get_tmp_download_url`;
  * it's used only if it is that Lark endpoint, so the person's token never goes anywhere else.
  * Otherwise the call is built here. Null if the file is no longer attached.
  */
-export function downloadRequest(fields, fileToken, tableId) {
-  const cell = fields && fields[FIELD.attachments];
+export function downloadRequest(fields, fileToken, tableId, column = FIELD.attachments) {
+  const cell = fields && fields[column];
   const a = (Array.isArray(cell) ? cell : []).find((x) => x && x.file_token === fileToken);
   if (!a) return null;
   if (typeof a.tmp_url === "string" && a.tmp_url.startsWith(`${TMP_LINK_API}?`)) return a.tmp_url;
@@ -226,8 +230,8 @@ export function downloadLink(json, fileToken) {
  * file, since it carries the Base's permission context; otherwise it is built here.
  * Null if the file is no longer attached.
  */
-export function fileRequest(fields, fileToken, tableId) {
-  const cell = fields && fields[FIELD.attachments];
+export function fileRequest(fields, fileToken, tableId, column = FIELD.attachments) {
+  const cell = fields && fields[column];
   const a = (Array.isArray(cell) ? cell : []).find((x) => x && x.file_token === fileToken);
   if (!a) return null;
   const endpoint = `${LARK.api}/drive/v1/medias/${encodeURIComponent(fileToken)}/download`;

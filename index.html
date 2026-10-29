@@ -88,7 +88,7 @@
       var v = window.APP_BUILD = Date.now().toString(36);
       var files = ["js/config.js", "js/icons.js", "js/brief.js", "js/ui.js", "js/cells.js", "js/errors.js", "js/schema.js",
                    "js/tables.js", "js/verify.js", "js/rows.js", "js/ops.js", "js/settings.js", "js/net.js", "js/auth.js",
-                   "js/extract.js", "js/lark.js", "js/doc.js", "js/pdf.js", "js/match.js", "js/evidence.js",
+                   "js/extract.js", "js/lark.js", "js/doc.js", "js/pdf.js", "js/match.js", "js/evidence.js", "js/bundle.js",
                    "js/viewport.js", "js/sources.js", "js/docview.js", "js/settings-view.js", "js/app.js"];
       var map = { imports: {} };
       files.forEach(function (f) { map.imports[new URL(f, location.href).href] = new URL(f + "?v=" + v, location.href).href; });

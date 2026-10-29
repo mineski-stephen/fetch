@@ -105,9 +105,13 @@ async function showTab(s) {
   pages.replaceChildren();
   pages.scrollTop = 0;
   setStatus("");
-  const file = ctx.k?.files.get(s.name);
   const text = s.kind === "typed" ? ctx.k?.typed : ctx.k?.texts[s.index];
   try {
+    const visual = s.kind === "pdf" || s.kind === "image";
+    if (visual && src.needsDownload(ctx.k, s.name)) setStatus(`Downloading “${s.name}” from Lark…`, true);
+    const file = visual ? await src.fileOf(ctx.k, s.name) : null;
+    if (stale()) return;
+    setStatus("");
     if (s.kind === "pdf" && file) await pdfTab(file, stale);
     else if (s.kind === "image" && file) await imageTab(file, stale);
     else if (text) textTab(text);
@@ -115,12 +119,14 @@ async function showTab(s) {
       const input = h("input", { type: "file", hidden: "", accept: s.kind === "pdf" ? ".pdf,application/pdf" : "image/*",
         onchange: () => { if (input.files[0] && src.addFile(ctx.draft, input.files[0])) { ctx.k = src.kept(ctx.draft); showTab(s); } } });
       pages.append(h("div", { class: "docs-empty" }, ic("file"),
-        h("p", {}, `The page was reloaded, so “${s.name}” isn't open any more. Add it again to read it here.`),
+        h("p", {}, ctx.k?.load ? `“${s.name}” isn't attached to this brief in Lark any more. Add a copy to read it here.`
+          : `The page was reloaded, so “${s.name}” isn't open any more. Add it again to read it here.`),
         h("button", { type: "button", class: "btn btn-sm btn-tonal", onclick: () => input.click() }, ic("plus"), `Add “${s.name}”`), input));
     } else if (s.kind === "audio" || s.kind === "video") {
       pages.append(h("p", { class: "docs-empty" }, `“${s.name}” is a recording, so there's nothing to show here.`));
     } else {
-      pages.append(h("p", { class: "docs-empty" }, "The text of this file is only kept until the page reloads."));
+      pages.append(h("p", { class: "docs-empty" }, ctx.k?.load ? "Fetch didn't keep the text of this file."
+        : "The text of this file is only kept until the page reloads."));
     }
   } catch (err) {
     if (!stale()) pages.append(h("p", { class: "form-error docs-empty" }, err?.message || "Couldn't open this file."));

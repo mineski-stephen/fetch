@@ -258,3 +258,13 @@ test("an attachment's file request uses the cell's own download address only if 
   }
   assert.equal(fileRequest(fields, "gone", "tblX"), null);
 });
+
+test("Fetch Files: read as files, written only for a new row, downloaded from its own column", () => {
+  const rec = { record_id: "r9", fields: { [FIELD.fetchFiles]: [{ file_token: "s1", name: "fetch-sources.json.gz", size: 900, url: "https://x" }] } };
+  assert.deepEqual(fromRecord(rec).fetchFiles, [{ token: "s1", name: "fetch-sources.json.gz", size: 900 }]);
+  assert.deepEqual(newRowCells(state(), { fetchFiles: ["s1"] })[FIELD.fetchFiles], [{ file_token: "s1" }]);
+  assert.equal(newRowCells(state())[FIELD.fetchFiles], undefined);
+  assert.equal(fileRequest(rec.fields, "s1", "tblX"), null, "not in Attachments");
+  assert.match(fileRequest(rec.fields, "s1", "tblX", FIELD.fetchFiles), /\/medias\/s1\/download\?extra=/);
+  assert.match(downloadRequest(rec.fields, "s1", "tblX", FIELD.fetchFiles), /file_tokens=s1/);
+});
