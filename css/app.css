@@ -425,6 +425,7 @@ div.ed { display: block; }
 
 /* ---- responsive: tablet layout and the phone bottom action bar ------------------------- */
 /* ---- a shared brief (#/share/<id>): view only ---------------------------------------------- */
+.login-share { text-align: left; margin-bottom: 4px; }
 .paper.is-readonly .item-add, .paper.is-readonly .item-del, .paper.is-readonly .item-drag,
 .paper.is-readonly .clar-bar, .paper.is-readonly .clar-toggle, .paper.is-readonly .doc-chip .i { display: none; }
 .paper.is-readonly .ed { cursor: text; -webkit-user-modify: read-only; }
@@ -433,6 +434,11 @@ div.ed { display: block; }
 .split.is-shared #saveBtn, .split.is-shared #nsAddForm, .split.is-shared #attAddBtn, .split.is-shared .att-x,
 .split.is-shared #resetBtn { display: none !important; }
 .split.is-shared .chip-opt { pointer-events: none; }
+/* the sharing view shows the document only, and the Attachments card when there are files */
+.split.is-shared > aside > :not(#attCard) { display: none !important; }
+.split.is-shared:not(.has-files) { grid-template-columns: minmax(0, 1fr); }
+.split.is-shared:not(.has-files) > aside { display: none; }
+body.is-shared-view[data-view="result"] main { padding-bottom: 24px; }   /* no phone action bar to clear */
 .split.is-shared .chip-opt[aria-pressed="false"], .split.is-shared .chip-opt[aria-checked="false"] { opacity: .5; }
 
 /* ---- Check sources: click a value to see the passage it came from ------------------------ */

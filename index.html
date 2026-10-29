@@ -150,9 +150,13 @@
       <div class="login-card">
         <img class="login-mark" src="img/fetch-icon.svg?v=1.2.1" alt="" width="88" height="88">
         <h1 id="loginTitle">Fetch</h1>
-        <p class="lede">Turn client briefs into a project brief summary, saved to Lark.</p>
+        <p class="lede" id="loginVersion"></p>
+        <div class="callout callout-info login-share" id="shareMsg" role="status" hidden>
+          <span class="i" data-icon="info" aria-hidden="true"></span>
+          <div>You need to log in to view this document.</div>
+        </div>
         <button type="button" class="btn btn-primary btn-lg" id="loginBtn"><span class="label">Log in with Lark</span></button>
-        <p class="hint">For people with access to the team's briefs in Lark. You'll stay logged in for about 2 hours.</p>
+        <p class="hint">You'll stay logged in for about 2 hours.</p>
         <div class="callout callout-warn" id="loginMsg" role="status" hidden></div>
         <div class="callout callout-err" id="redirectMsg" hidden></div>
       </div>
@@ -315,7 +319,7 @@
               <button type="submit" class="btn btn-tonal">Add</button>
             </form>
           </section>
-          <section class="card card-pad stack" aria-labelledby="attTitle">
+          <section class="card card-pad stack" id="attCard" aria-labelledby="attTitle">
             <div class="card-head">
               <h2 id="attTitle"><span class="i" data-icon="file" aria-hidden="true"></span> Attachments</h2>
             </div>

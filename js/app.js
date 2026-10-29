@@ -132,13 +132,25 @@ function showSettings() {
 // ---- Lark login ------------------------------------------------------------------
 const LOW_SESSION_MS = 10 * 60 * 1000;
 const loginState = { note: "", returnTo: "", redirectChecked: false };
+const AUTO_LOGIN_KEY = "fetch.autoLogin";   // sessionStorage: when a sharing link last went to Lark's login
 
 function showLogin() {
   loginState.returnTo = location.hash && location.hash !== "#/login" ? location.hash : "#/";
   showView("login");
   $("#loginMsg").hidden = !loginState.note;
   $("#loginMsg").textContent = loginState.note;
+  $("#shareMsg").hidden = !/^#\/share\//.test(loginState.returnTo);   // came from a sharing link
   busy($("#loginBtn"), false);
+  // A sharing link goes straight to Lark's login (and back to the brief). Not after a failed or
+  // ended login (the screen says why), and only once a minute, so it can never loop.
+  if (/^#\/share\//.test(loginState.returnTo) && !loginState.note) {
+    let last = 0;
+    try { last = Number(sessionStorage.getItem(AUTO_LOGIN_KEY)) || 0; } catch (_) { /* storage off: still once per load */ }
+    if (Date.now() - last > 60000) {
+      try { sessionStorage.setItem(AUTO_LOGIN_KEY, String(Date.now())); } catch (_) { /* see above */ }
+      return login(loginState.returnTo);
+    }
+  }
   if (!loginState.redirectChecked || loginState.note) {   // is this address registered on the Lark app? (again after a failure)
     loginState.redirectChecked = true;
     auth.redirectProblem().then((problem) => {
@@ -184,6 +196,7 @@ function initials(name) {
 function renderHeader() {
   $("#appVersion").textContent = `v${APP.version}`;
   $("#appVersion").title = `${APP.name} version ${APP.version}`;
+  $("#loginVersion").textContent = `v${APP.version}`;
   const overrides = cfg().overrides;   // the red badge, whenever anything is overridden
   $("#envBadge").hidden = !ENV_LABEL;
   $("#envBadge").textContent = ENV_LABEL;
@@ -948,6 +961,9 @@ function openDoc(doc) {
   doc.shared = !!doc.shared;
   paper.setReadOnly(doc.shared);
   $('[data-view="result"] .split').classList.toggle("is-shared", doc.shared);
+  // The sharing view is the document only, plus its files when it has any.
+  $('[data-view="result"] .split').classList.toggle("has-files", (doc.attachments || []).length > 0);
+  document.body.classList.toggle("is-shared-view", doc.shared);
   $("#shareBtn").hidden = doc.mode !== "record";
   $("#checkBar").hidden = !(doc.mode === "draft" && Array.isArray(S.draft?.evidence));
   $("#checkBtn").disabled = !S.draft?.evidence?.length;
@@ -1166,8 +1182,7 @@ function wireResult() {
   $("#shareBtn").onclick = async (e) => {
     const btn = e.currentTarget;
     if (!S.doc || S.doc.mode !== "record") return;
-    const ok = await copyText(shareUrl(S.doc.id));
-    if (!ok) return toast("Couldn't copy. Here's the link:", { type: "error", detail: shareUrl(S.doc.id), timeout: 0 });
+    if (!await copyShareLink(S.doc.id, { quiet: true })) return;
     flashDone(btn, "Link copied");
     popBadge(btn, "Copied!");
   };
@@ -1546,9 +1561,21 @@ function renderBriefs() {
   }
 }
 
+/** Copy a brief's view-only link. Resolves true if copied (a toast says so, unless `quiet`). */
+async function copyShareLink(id, { quiet = false } = {}) {
+  const url = shareUrl(id);
+  if (!await copyText(url)) {
+    toast("Couldn't copy. Here's the link:", { type: "error", detail: url, timeout: 0 });
+    return false;
+  }
+  if (!quiet) toast("Sharing link copied. Anyone who can open the briefs table can view it.", { type: "success", timeout: 2600 });
+  return true;
+}
+
 // ---- card actions: right-click or the ⋯ button (ui.js openMenu) ------------------------
 const menuFor = (b) => [
   { label: "Open", icon: "open", onSelect: () => go(`#/briefs/${encodeURIComponent(b.id)}`) },
+  { label: "Copy sharing link", icon: "link", onSelect: () => copyShareLink(b.id) },
   { label: b.done ? "Mark as Not Done" : "Mark as Done", icon: b.done ? "undoneCircle" : "doneCircle", onSelect: () => toggleDone(b) },
   "-",
   { label: "Delete…", icon: "trash", danger: true, onSelect: () => removeBrief(b) },

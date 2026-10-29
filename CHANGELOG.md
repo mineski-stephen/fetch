@@ -9,6 +9,21 @@ or links stop working), add an entry here with the same number and the date,
 and say what changed in the team's words. `npm run check:shell` fails if the
 two numbers differ.
 
+## 1.2.1 · Oct 29, 2026
+
+- **Sharing links log you in by themselves.** Opening one while logged out goes
+  straight to Lark's login and back to the brief, without the login screen in
+  between (unless a login just failed, which the screen then explains). When
+  the login screen does show for a sharing link, it says "You need to log in to
+  view this document."
+- **The sharing view is just the document.** Save, copy, PDF, Requirement & VAT,
+  Next steps and the chat preview are gone from it; only the Attachments card
+  stays, and only when the brief has files.
+- **Copy sharing link** is also in each brief's menu in All briefs (the ⋯ button,
+  or right-click the card).
+- The login screen is shorter: the version number under the name, and just "You'll
+  stay logged in for about 2 hours." under the button.
+
 ## 1.2.0 · Oct 27, 2026
 
 - **Sharing links.** Every filed brief has a view-only page,

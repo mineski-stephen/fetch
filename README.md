@@ -604,10 +604,11 @@ variable (see `tech/lark-proxy/README.md`).
 6. Later, open **All briefs**, search or sort by due date, click a card to
    reopen it, edit, and **Save changes to Lark**. Click a file's name in the
    **Attachments** card to download it; it's saved under its own name.
-   **Copy sharing link** gives a view-only link to the brief (also in the
-   *Fetch URL* column in Lark): the brief as a document, attachments
-   downloadable, nothing editable. Whoever opens it logs in with Lark and needs
-   access to the briefs table, like everyone else.
+   **Copy sharing link** (in the brief, or in a card's ⋯ menu in All briefs)
+   gives a view-only link to the brief, also in the *Fetch URL* column in
+   Lark: just the document, plus its files to download when it has any.
+   Whoever opens it needs access to the briefs table; if they aren't logged
+   in, the link takes them straight to Lark's login and back to the brief.
 7. When a brief is finished, right-click its card (or click ⋯) → **Mark as
    Done**. It moves to the collapsed **Done** section under the list; open that
    section and choose **Mark as Not Done** to bring it back. An **Undo** link
@@ -641,7 +642,8 @@ Everything Fetch keeps in the browser uses `fetch.*` keys: in `localStorage`
 `fetch.etaFactor` and `fetch.cache.<app>:<table>` (the list of briefs, without
 attachment links); in `sessionStorage` the login (`fetch.auth.token`, `.pending`,
 `.user`), `fetch.composeText`, `fetch.edits` (unsaved edits, only while you are at
-Lark's login page) and `fetch.override.*`. The cached list is dropped whenever a
+Lark's login page), `fetch.autoLogin` (when a sharing link last sent you to Lark's
+login, so it can't loop) and `fetch.override.*`. The cached list is dropped whenever a
 session ends (not only on Log out), because shared computers outlive a login.
 Older versions used `bx.*`; a small script at the top of `index.html` moves
 those once (and drops the old `fetch.briefsCache`), and can be removed after
@@ -914,7 +916,7 @@ changed and every other row is untouched.
 | "Couldn't download “…”" when clicking an attachment | Lark refused the link. A missing-permission message means the login's scope doesn't cover Drive downloads: add `drive:drive:readonly` to `LARK.scopes` in `js/config.js` and to the Lark app (*Permissions & Scopes*), then log in again. "No longer attached" means it was removed in Lark: reopen the brief. |
 | Clicking an attachment shows "“…” is ready." with a *Download it* link instead of downloading | Lark didn't let the connection service fetch the file, so Fetch got a temporary link instead. Click *Download it* (it works for about a day). |
 | All briefs: "N briefs don't link to their view-only page in the “Fetch URL” column" | Old links (`#/briefs/…`) or empty cells. Click **Update them** (only that column is written). If it says the column is a formula, change the formula in Lark as shown. |
-| A sharing link shows the login screen | The view-only page still reads the brief from Lark as the person opening it: they log in with Lark and need access to the briefs table. |
+| A sharing link shows the login screen instead of going to Lark | It goes to Lark by itself only once a minute, and not right after a failed login (the screen says why). Click **Log in with Lark**. The person needs access to the briefs table either way: the view-only page reads the brief from Lark as them. |
 | "Some actions are switched off." with "Column “Attachments” is missing." | An optional column is gone. Only what uses it is off. Restore it, or run the setup script. |
 | "A column Fetch needs doesn't exist: …. Tell the tool owner." | Same as above, reported by Lark when a write names a missing column. |
 | "“…” changed in Lark since you opened it. Nothing was written." with the cell names, and the button reads **Save anyway** | Someone changed those cells in Lark meanwhile. The list has refreshed. Choose **Save anyway** to write your version of just the cells you changed, or close the dialog and reopen the brief to see theirs. |
