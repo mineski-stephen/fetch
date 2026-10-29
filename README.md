@@ -157,8 +157,14 @@ is switched off with "Your login can only read the tables. Log in again to allow
 saving."
 
 **Where the token lives.** In `sessionStorage`: this tab only, gone when the
-tab closes, never in a URL. A new tab means logging in again (one click if
-you're already signed in to Lark). *Log out* (Settings → Account) is local only
+tab closes, never in a URL. A new tab (a sharing link opened from chat, say)
+first asks this browser's other open Fetch tabs for their login (a
+`BroadcastChannel`, same site and same page only, answered only by a tab with a
+live login) and opens straight away if one answers within 0.4 s. With no other
+Fetch tab open it logs in again (one click, or none, if you're already signed in
+to Lark). The login is never written anywhere that outlives the tabs. Note that
+every site on `mineski-stephen.github.io` shares that origin, so only host
+trusted pages there. *Log out* (Settings → Account) is local only
 (Lark has no way to revoke a token): it forgets the token and the cached briefs
 list on this computer; you stay logged in to Lark itself, and the token itself
 stays valid until it expires.

@@ -1839,6 +1839,7 @@ async function init() {
   document.documentElement.dataset.booted = "";   // wired up: the boot watchdog in index.html stands down
 
   await finishLoginIfReturning();
+  if (!auth.currentToken() && !loginState.note) await auth.borrowLogin();   // logged in in another Fetch tab?
   if (auth.currentToken()) {
     loadBriefs().catch(() => {});
     auth.loadUser().then(() => { renderHeader(); if (S.view === "settings") settingsView.show(); }).catch(() => {});

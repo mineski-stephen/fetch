@@ -15,7 +15,8 @@ two numbers differ.
   straight to Lark's login and back to the brief, without the login screen in
   between (unless a login just failed, which the screen then explains). When
   the login screen does show for a sharing link, it says "You need to log in to
-  view this document."
+  view this document." Already logged in to Fetch in another tab? The link
+  opens the brief straight away, using that tab's login.
 - **The sharing view is just the document.** Save, copy, PDF, Requirement & VAT,
   Next steps and the chat preview are gone from it; only the Attachments card
   stays, and only when the brief has files.

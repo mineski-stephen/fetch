@@ -8,6 +8,8 @@
  *      user_access_token through it (the proxy adds the app secret). Once, 45 s, never retried.
  *   3. The token lives in sessionStorage (this tab only, gone when it closes) and every Lark
  *      call, plus every brief sent to the extraction service, runs as the signed-in person.
+ *      A new tab (a sharing link opened from chat) asks this browser's other open Fetch tabs
+ *      for their login first (borrowLogin), so it doesn't log in again while one is open.
  *      Lark gives about 2 hours and no refresh token, so after that the user logs in again.
  *
  * The page's own address is the redirect URL, so it must be registered on the Lark app
@@ -47,6 +49,37 @@ export function canWrite() {
 export function clearSession() {
   store("session", KEY.token, undefined);
   store("session", KEY.user, undefined);
+}
+
+// ---- sharing the login with this browser's other Fetch tabs ---------------------------
+// A tab has no login of its own until it logs in (sessionStorage is per tab). A new one asks the
+// other open Fetch tabs over a BroadcastChannel (same site and same page only) and takes a live
+// login if one answers. Nothing is stored beyond this tab: when every tab closes, the login is gone.
+const channel = typeof BroadcastChannel === "function" ? new BroadcastChannel("fetch.auth") : null;
+channel?.addEventListener("message", (e) => {
+  const m = e.data || {};
+  if (m.type === "ask" && m.app === REDIRECT_URI && currentToken()) {
+    channel.postMessage({ type: "login", app: REDIRECT_URI, token: raw(), user: recall("session", KEY.user) });
+  }
+});
+
+/** If this tab has no login, take one from another open Fetch tab (waits at most `ms`). Resolves true if logged in. */
+export function borrowLogin(ms = 400) {
+  if (currentToken() || !channel) return Promise.resolve(!!currentToken());
+  return new Promise((resolve) => {
+    const finish = (ok) => { channel.removeEventListener("message", onAnswer); clearTimeout(timer); resolve(ok); };
+    const onAnswer = (e) => {
+      const m = e.data || {};
+      const t = m.token;
+      if (m.type !== "login" || m.app !== REDIRECT_URI || !t || !t.access_token || !(t.expires_at > Date.now() + 30000)) return;
+      store("session", KEY.token, t);
+      if (m.user) store("session", KEY.user, m.user);
+      finish(true);
+    };
+    channel.addEventListener("message", onAnswer);
+    const timer = setTimeout(() => finish(false), ms);
+    channel.postMessage({ type: "ask", app: REDIRECT_URI });
+  });
 }
 
 // ---- when a login ends ------------------------------------------------------------
