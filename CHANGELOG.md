@@ -9,6 +9,21 @@ or links stop working), add an entry here with the same number and the date,
 and say what changed in the team's words. `npm run check:shell` fails if the
 two numbers differ.
 
+## 1.4.0 · Nov 5, 2026
+
+- **One login for Fetch, Polaris and Suppliers.** Log in to any of them and
+  you're logged in to all three in this browser, in every tab, with one timer
+  (the time left in the top bar is the same everywhere). Opening another tool, a
+  new tab or a sharing link no longer asks you to log in again. The login also
+  stays when you close the tab, until it ends about 2 hours after you logged in.
+- **Log out logs you out of all three** in this browser. You're still logged in
+  to Lark itself. A tab that's open elsewhere shows the login screen at once.
+- **Logging in again anywhere renews every tab:** the "Your login ends at…"
+  warning closes and the timer starts over.
+- A save already running finishes even if the login ends in another tab meanwhile;
+  then this tab shows the login screen too.
+- If you were logged in before this update, you stay logged in.
+
 ## 1.3.0 · Oct 29, 2026
 
 - **Check sources and Brief files on filed briefs.** Saving a brief now also

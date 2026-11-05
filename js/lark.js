@@ -28,9 +28,11 @@ function table() {
   return t;
 }
 
-/** The signed-in user's token; if the login has ended, the app shows the login screen. */
+/** The signed-in user's token; if the login has ended, the app shows the login screen. Work already
+ *  running (auth.track) may use it until its real expiry, even if another tab logged out meanwhile. */
 function token() {
-  const value = auth.token();
+  const t = auth.busyWorking() ? auth.workToken() : auth.currentToken();
+  const value = t && t.access_token;
   if (!value) {
     auth.end();
     throw new LarkError("login ended", { deadToken: true });

@@ -41,6 +41,11 @@ else {
     else fail(`${mine} differs from the skill's ${theirs}. Fix the skill first, then copy it back unedited.`);
   }
 }
+const systems = ["../design-ref/mineski-systems-design/assets", ".claude/skills/mineski-systems-design/assets"]
+  .map((p) => root + p).find((p) => existsSync(`${p}/session.js`));
+if (!systems) console.log("  - the systems design isn't next to this folder; js/session.js not compared");
+else if (md5(root + "js/session.js") === md5(`${systems}/session.js`)) ok("js/session.js matches the systems design");
+else fail("js/session.js differs from the systems design's assets/session.js. Fix it there first, then copy it back unedited.");
 
 begin("Boot watchdog");
 if (/data-booted/.test(html) && /couldn\\?'t start/.test(html)) ok("index.html has it");
@@ -65,7 +70,7 @@ for (const p of scan) {
 for (const f of modules) if (/\bbx\./i.test(read(`js/${f}`))) fail(`js/${f} mentions an old "bx." storage key`);
 const bodyAfterHead = html.split("</script>").slice(1).join("</script>");   // everything but the first (migration) script
 if (/\bbx\./i.test(bodyAfterHead)) fail("index.html mentions \"bx.\" outside the head's migration script");
-const own = modules.filter((f) => !["ui.js", "icons.js"].includes(f));   // the shared files are the skill's to fix
+const own = modules.filter((f) => !["ui.js", "icons.js", "session.js"].includes(f));   // the shared files are the skills' to fix
 if (/\u2014/.test(html + own.map((f) => read(`js/${f}`)).join(""))) fail("an em dash in the page or its scripts (house voice: hyphen, colon or a new sentence)");
 if (!section) ok("none found");
 

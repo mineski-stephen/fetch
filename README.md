@@ -156,18 +156,25 @@ upload have to be added again.
 is switched off with "Your login can only read the tables. Log in again to allow
 saving."
 
-**Where the token lives.** In `sessionStorage`: this tab only, gone when the
-tab closes, never in a URL. A new tab (a sharing link opened from chat, say)
-first asks this browser's other open Fetch tabs for their login (a
-`BroadcastChannel`, same site and same page only, answered only by a tab with a
-live login) and opens straight away if one answers within 0.4 s. With no other
-Fetch tab open it logs in again (one click, or none, if you're already signed in
-to Lark). The login is never written anywhere that outlives the tabs. Note that
-every site on `mineski-stephen.github.io` shares that origin, so only host
-trusted pages there. *Log out* (Settings → Account) is local only
-(Lark has no way to revoke a token): it forgets the token and the cached briefs
-list on this computer; you stay logged in to Lark itself, and the token itself
-stays valid until it expires.
+**One login for every Mineski tool.** Fetch, Polaris and Suppliers are published
+on the same site (`mineski-stephen.github.io`) and log in through the same Lark
+app, so they share one login: log in to any of them and you're logged in to all
+three in this browser, in every tab, with one timer. A sharing link opened from
+chat, a new tab or another tool opens straight away. The token lives in
+`localStorage` under `mineski.auth.token` (with your name and picture in
+`mineski.auth.user`), through the shared `js/session.js` (copied unedited from
+`design-ref/mineski-systems-design/assets/`), never in a URL. It stays when you
+close the tab, until it ends (about 2 hours after you logged in) or you log out.
+Every other open tab hears about a change at once: a login elsewhere takes a tab
+off its login screen, a fresh login closes the "Your login ends at…" warning, and
+a logout elsewhere shows the login screen ("Your login ended in another tab.").
+A save already running finishes first. Only the login in progress stays in its
+own tab (`fetch.auth.pending`). Because every page on `mineski-stephen.github.io`
+can read that storage, only Mineski tools are published there. *Log out*
+(Settings → Account) logs you out of every Mineski tool in this browser and
+forgets the cached briefs list. It is local only (Lark has no way to revoke a
+token): you stay logged in to Lark itself, and the token stays valid until it
+expires.
 
 **One-time setup on the Lark app** (`cli_aab0716138b8ded3`, the same app as
 Polaris, in the [Lark Developer Console](https://open.larksuite.com/app)):
@@ -199,6 +206,7 @@ project-brief/                     ← the repository root = the website root
 │   ├── app.js                     Routing and screens (incl. Next steps & Attachments cards)
 │   ├── net.js                     Services (wake, status, version check, ad-blocker detection) and the Lark call
 │   ├── auth.js                    Lark login (OAuth + PKCE), the session and its clock
+│   ├── session.js                 The login shared by every Mineski tool (copied unedited from the systems design)
 │   ├── settings.js                Per-browser settings (Gemini key, local overrides) and cfg()
 │   ├── settings-view.js           The Settings screen (a factory that takes a ctx)
 │   ├── extract.js                 Talking to the Gemini proxy: file preparation, upload, wait estimate
@@ -665,11 +673,13 @@ the current browser only.
 Everything Fetch keeps in the browser uses `fetch.*` keys: in `localStorage`
 `fetch.settings` (JSON), `fetch.theme`, `fetch.draft` (with its `client_token`),
 `fetch.etaFactor` and `fetch.cache.<app>:<table>` (the list of briefs, without
-attachment links); in `sessionStorage` the login (`fetch.auth.token`, `.pending`,
-`.user`), `fetch.composeText`, `fetch.edits` (unsaved edits, only while you are at
+attachment links); in `sessionStorage` a login in progress (`fetch.auth.pending`),
+`fetch.composeText`, `fetch.edits` (unsaved edits, only while you are at
 Lark's login page), `fetch.autoLogin` (when a sharing link last sent you to Lark's
-login, so it can't loop) and `fetch.override.*`. The cached list is dropped whenever a
-session ends (not only on Log out), because shared computers outlive a login.
+login, so it can't loop) and `fetch.override.*`. The login itself is shared by the
+Mineski tools: `mineski.auth.token` and `mineski.auth.user` in `localStorage` (see
+[Lark login](#lark-login)). The cached list is dropped whenever a session ends (not
+only on Log out), because shared computers outlive a login.
 Older versions used `bx.*`; a small script at the top of `index.html` moves
 those once (and drops the old `fetch.briefsCache`), and can be removed after
 January 2027. The header also shows a **Test copy** badge when `APP.env` isn't `live`.
@@ -842,8 +852,10 @@ changed and every other row is untouched.
   enforces each person's own permissions on the Base. The extraction service
   checks the login itself, so the shared Gemini key can't be used by someone
   who merely finds its URL. See [Lark login](#lark-login).
-- **Login tokens** stay in the tab's `sessionStorage` (so **each tab logs in on its
-  own**, one click if Lark's own session exists) and are sent only to
+- **Login tokens** are **shared by the Mineski tools on this site** (`localStorage`
+  `mineski.auth.token`): one login for Fetch, Polaris and Suppliers, in every tab,
+  until it ends (about 2 hours) or you log out; **closing the tab doesn't log you
+  out**, so on a shared computer use Log out. Tokens are sent only to
   the Lark proxy and the extraction service, both over HTTPS. PKCE and the
   `state` check protect the login callback, and `?code=` is removed from the
   address bar before anything else happens. Service-address overrides only work on
@@ -857,8 +869,9 @@ changed and every other row is untouched.
   tab's memory and are gone on reload. When the brief is filed, the quotes and
   converted text go into the row's *Fetch Files* column, readable by whoever can
   read the table, which already holds the files themselves in *Attachments*.
-- **Log out is local.** Lark has no way to revoke a token, so *Log out* forgets it
-  (and the cached briefs) in this browser only. The token stays valid until it expires (about 2 hours).
+- **Log out is local, and covers every tool.** Lark has no way to revoke a token, so
+  *Log out* forgets it in this browser, for Fetch, Polaris and Suppliers alike (and
+  forgets the cached briefs). The token stays valid until it expires (about 2 hours).
 - **The cached list of briefs** (`fetch.cache.<app>:<table>`) lets the page paint at
   once. It holds no attachment links, is never the basis for a write (a save re-reads the
   row), and is dropped whenever a session ends.
@@ -937,6 +950,7 @@ changed and every other row is untouched.
 | "The connection service couldn't complete the login. Try again; if it keeps happening, tell the admin." | The Lark proxy had a problem. Try again; if it persists, check the proxy (it must add the app secret on `/authen/v2/oauth/token`). |
 | "Your login is missing a permission Fetch needs (…). Log out, then log in again." | The Lark app's scopes changed after you logged in. Log out, then log in. |
 | "Your login ended after about 2 hours. Log in again to keep going." | Logins last about 2 hours. Log in again; the draft, typed text and unsaved edits are kept. |
+| "Your login ended in another tab. Log in again to keep going." | You (or someone at this computer) logged out of Fetch, Polaris or Suppliers in another tab, or Lark ended the login there. They share one login, so log in again in any of them. |
 | "Your login ends at 4:30 PM." (stays on screen) | Click **Log in again** before it ends, or finish what you're doing; nothing is lost either way. |
 | "Your login is about to end, so this wasn't sent." | Less than a minute (2 for an extraction) of login left. **Log in again**, then try it. |
 | "Your login can only read the tables. Log in again to allow saving." | The login lacks the `bitable:app` scope. Log in again. |

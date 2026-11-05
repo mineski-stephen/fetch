@@ -190,6 +190,18 @@ function sessionEnded(message) {
   showLogin();
 }
 
+/** Another tab, of Fetch or another Mineski tool, logged in or renewed the login (they share it:
+ *  js/session.js). A tab on the login screen goes straight in; the others repaint the time left. */
+function sharedLogin({ renewed }) {
+  loginState.note = "";
+  const repaint = () => { renderHeader(); updateWriteNote(); if (S.view === "settings") settingsView.show(); };
+  repaint();
+  auth.loadUser().then(repaint).catch(() => {});   // maybe someone else this time
+  if (renewed) return;
+  if (S.view === "login") route();
+  loadBriefs().catch(() => {});
+}
+
 function initials(name) {
   return (name || "").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase() || "?";
 }
@@ -1860,7 +1872,7 @@ const settingsView = createSettingsView({
     // computer can't see it. The unsaved draft is theirs to resume or discard.
     S.edits = {};
     store("session", KEYS.edits, undefined);
-    auth.logout("You've logged out of Fetch. You're still logged in to Lark itself.");
+    auth.logout();   // of every Mineski tool in this browser: they share the login
     go("#/");
   },
   clearLocal() {   // one click; Undo in the toast puts the draft, the cached list and the estimate back
@@ -1918,6 +1930,7 @@ async function init() {
   settingsView.mount();
   $("#loginBtn").onclick = () => login();
   auth.onEnded(sessionEnded);
+  auth.onShared(sharedLogin);
   auth.onBeforeLogin(persistEdits);
   auth.startClock(() => { renderHeader(); settingsView.tick(); });
   geminiService.on(updateSetupNote);
@@ -1935,7 +1948,6 @@ async function init() {
   document.documentElement.dataset.booted = "";   // wired up: the boot watchdog in index.html stands down
 
   await finishLoginIfReturning();
-  if (!auth.currentToken() && !loginState.note) await auth.borrowLogin();   // logged in in another Fetch tab?
   if (auth.currentToken()) {
     loadBriefs().catch(() => {});
     auth.loadUser().then(() => { renderHeader(); if (S.view === "settings") settingsView.show(); }).catch(() => {});
