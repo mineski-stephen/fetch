@@ -37,7 +37,8 @@ function serviceLine(svc, { awake = "Awake", blockedHelp = "Allow the address be
   const mine = cfg().overrides.filter((o) => o.startsWith(svc.id === "gemini" ? "Extraction service" : "Lark proxy"));
   const note = mine.length ? (mine.some((o) => o.includes("page link"))
     ? " (test address from the page link; open the page with ?reset to go back)" : " (test address from Advanced)") : "";
-  return [tone, `${text}${svc.host() ? ` · ${svc.host()}` : ""}${note}`];
+  const backup = s.backup ? " (the backup: the usual one can't be reached)" : "";
+  return [tone, `${text}${svc.host() ? ` · ${svc.host()}` : ""}${backup}${note}`];
 }
 
 export function createSettingsView(ctx) {
@@ -115,7 +116,7 @@ export function createSettingsView(ctx) {
     $("#setGeminiUrl").value = s.geminiUrl || "";
     $("#setGeminiUrl").placeholder = d.geminiUrl || "https://…onrender.com";
     $("#setLarkUrl").value = s.larkUrl || "";
-    $("#setLarkUrl").placeholder = d.larkUrl;
+    $("#setLarkUrl").placeholder = d.larkUrls[0];
     $("#setLarkTable").value = s.larkTable || "";
     $("#setLarkTable").placeholder = (d.table && d.table.url) || "https://…larksuite.com/base/…?table=…";
   }

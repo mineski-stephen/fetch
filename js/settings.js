@@ -40,38 +40,38 @@ function configTable() {
 
 const defaults = {
   geminiUrl: SERVICES.gemini.url,
-  larkUrl: SERVICES.lark.url,
+  larkUrls: SERVICES.lark.urls,   // tried in order; an override replaces the whole list
   get table() { return configTable(); },
 };
 
 let current;
 const listeners = new Set();
-/** The configuration in force right now: { geminiUrl, larkUrl, table, overrides: ["…", …] }. */
+/** The configuration in force right now: { geminiUrl, larkUrls, table, overrides: ["…", …] }. */
 export const cfg = () => current;
 /** Subscribe to changes of the saved settings. Returns the unsubscribe function. */
 export const on = (fn) => { listeners.add(fn); return () => listeners.delete(fn); };
 
 export function rebuild() {
   const s = localPage ? read() : {};
-  const c = { geminiUrl: defaults.geminiUrl, larkUrl: defaults.larkUrl, table: defaults.table, overrides: [] };
+  const c = { geminiUrl: defaults.geminiUrl, larkUrls: [...defaults.larkUrls], table: defaults.table, overrides: [] };
   if (s.geminiUrl && isServiceUrl(s.geminiUrl)) { c.geminiUrl = s.geminiUrl; c.overrides.push("Extraction service address (Settings)"); }
-  if (s.larkUrl && isServiceUrl(s.larkUrl)) { c.larkUrl = s.larkUrl; c.overrides.push("Lark proxy address (Settings)"); }
+  if (s.larkUrl && isServiceUrl(s.larkUrl)) { c.larkUrls = [s.larkUrl]; c.overrides.push("Lark proxy address (Settings)"); }
   if (s.larkTable) {
     try { c.table = parseBaseLink(s.larkTable); c.overrides.push("Lark table (Settings)"); } catch (_) { /* ignored: not a table link */ }
   }
   if (localPage) {   // testing overrides, per tab; only https or local http, and only on a local page
     const q = new URLSearchParams(location.search);
-    const names = { gemini: "geminiUrl", lark: "larkUrl" };
+    const names = { gemini: "geminiUrl", lark: "larkUrls" };
     if (q.has("reset")) Object.keys(names).forEach((k) => store("session", `fetch.override.${k}`, undefined));
     Object.keys(names).forEach((k) => q.get(k) && isServiceUrl(q.get(k)) && store("session", `fetch.override.${k}`, q.get(k)));
     for (const [k, prop] of Object.entries(names)) {
       const v = recall("session", `fetch.override.${k}`);
-      if (v && isServiceUrl(v)) { c[prop] = v; c.overrides.push(`${k === "gemini" ? "Extraction service" : "Lark proxy"} address (page link)`); }
+      if (v && isServiceUrl(v)) { c[prop] = prop === "larkUrls" ? [v] : v; c.overrides.push(`${k === "gemini" ? "Extraction service" : "Lark proxy"} address (page link)`); }
     }
   }
   if (APP.env !== "live") c.overrides.push(`Environment: ${APP.env}`);
   c.geminiUrl = (c.geminiUrl || "").replace(/\/+$/, "");
-  c.larkUrl = (c.larkUrl || "").replace(/\/+$/, "");
+  c.larkUrls = c.larkUrls.map((u) => String(u || "").replace(/\/+$/, "")).filter(Boolean);
   current = c;
 }
 

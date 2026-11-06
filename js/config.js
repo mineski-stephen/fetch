@@ -15,14 +15,17 @@
  */
 /* version: bump it with every release and add an entry to CHANGELOG.md (newest first, same number).
    The top bar shows it beside the name, so people can see at a glance which version they're running. */
-export const APP = { name: "Fetch", key: "fetch", version: "1.4.0", env: "live",   // env: "live" | "test"
+export const APP = { name: "Fetch", key: "fetch", version: "1.5.0", env: "live",   // env: "live" | "test"
   // Where the page is hosted. Sharing links (and the "Fetch URL" column) always point here, even
   // when they're made from a local copy, so a link in Lark works for everyone.
   url: "https://mineski-stephen.github.io/fetch/" };
 export const ENV_LABEL = APP.env === "test" ? "Test copy" : "";    // display only, never a gate
 
 export const SERVICES = {   // hosted defaults; `min` and `headers` are checked on every wake
-  lark: { url: "https://lark-proxy-dwiw.onrender.com", service: "lark-cors-proxy", min: "", headers: ["Authorization"] },
+  // The Lark proxy (tech/lark-proxy) runs in two places, tried in this order: Cloudflare Workers
+  // (never sleeps), then Render (the backup). Both must be in index.html's connect-src.
+  lark: { urls: ["https://lark-proxy.stephen-lin.workers.dev", "https://lark-proxy-dwiw.onrender.com"],
+          service: "lark-cors-proxy", min: "2.0.0", headers: ["Authorization"] },
   gemini: { url: "https://gemini-pdf-6wp4.onrender.com", service: "gemini-brief-proxy", min: "1.4.0",
             headers: ["Authorization", "X-Gemini-Api-Key"] },
 };

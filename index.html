@@ -63,7 +63,7 @@
        jsDelivr for "Check sources" (pdf.js fonts and character maps, Tesseract's engine and language
        data; no login token is ever sent there) and data: (Tesseract's engine is embedded in its script;
        a data: request never leaves the browser). -->
-  <meta http-equiv="Content-Security-Policy" content="connect-src 'self' https://lark-proxy-dwiw.onrender.com https://gemini-pdf-6wp4.onrender.com https://generativelanguage.googleapis.com https://cdn.jsdelivr.net data: http://127.0.0.1:* http://localhost:*; object-src 'none'; base-uri 'self'; form-action 'self'">
+  <meta http-equiv="Content-Security-Policy" content="connect-src 'self' https://lark-proxy.stephen-lin.workers.dev https://lark-proxy-dwiw.onrender.com https://gemini-pdf-6wp4.onrender.com https://generativelanguage.googleapis.com https://cdn.jsdelivr.net data: http://127.0.0.1:* http://localhost:*; object-src 'none'; base-uri 'self'; form-action 'self'">
   <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Fetch · Mineski</title>
@@ -132,7 +132,7 @@
       <span class="i" data-icon="alert" aria-hidden="true"></span>
       <div>
         <p><b>Fetch can't reach its connection service.</b> An ad blocker or privacy extension is probably blocking it.</p>
-        <p>Allow <code id="blockHost">lark-proxy-dwiw.onrender.com</code> in your blocker (or pause it on this page), then reload.</p>
+        <p>Allow <code id="blockHost">lark-proxy.stephen-lin.workers.dev</code> in your blocker (or pause it on this page), then reload.</p>
       </div>
       <button type="button" class="btn btn-sm" id="reloadBtn">Reload</button>
     </div>

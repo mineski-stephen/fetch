@@ -30,9 +30,11 @@ async function ping(url) {
 }
 
 let failures = 0;
-for (const [id, def] of Object.entries(SERVICES)) {
-  console.log(`${id}: ${def.url}`);
-  const { info, error } = await ping(def.url);
+// A service with several addresses (the Lark proxy: Cloudflare, then Render) has each checked.
+const checks = Object.entries(SERVICES).flatMap(([id, def]) => (def.urls || [def.url]).map((url) => [id, def, url]));
+for (const [id, def, url] of checks) {
+  console.log(`${id}: ${url}`);
+  const { info, error } = await ping(url);
   if (error) { failures++; console.log(`  ✗ ${error}`); continue; }
   if (info.service !== def.service) { failures++; console.log(`  ✗ service is "${info.service}", expected "${def.service}"`); continue; }
   const problem = incompatible(info, def);

@@ -9,6 +9,18 @@ or links stop working), add an entry here with the same number and the date,
 and say what changed in the team's words. `npm run check:shell` fails if the
 two numbers differ.
 
+## 1.5.0 · Nov 6, 2026
+
+- **A backup connection service.** The Lark connection service now runs in two
+  places: Cloudflare (used first, and it never sleeps, so "Waking up the
+  connection…" should rarely appear) and Render (the backup). If one can't be
+  reached, Fetch switches to the other on its own, and Settings > Connections
+  says when it's using the backup. Nothing to do on your side.
+- Saves are still sent only once. If the connection service hasn't answered
+  lately, Fetch checks it (and switches if needed) before saving, never after.
+- The connection service must be version 2.0.0 or newer; an older one shows as
+  "Out of date" in Settings.
+
 ## 1.4.0 · Nov 5, 2026
 
 - **One login for Fetch, Polaris and Suppliers.** Log in to any of them and

@@ -60,10 +60,10 @@ Lark can use Fetch.
           /extract + login  │                           │    (as the signed-in user)
                             ▼                           ▼
   ┌─────────────────────────────────┐      ┌────────────────────────────────┐
-  │ render/gemini-pdf  (Render)     │      │ Lark CORS proxy  (Render)      │
+  │ render/gemini-pdf  (Render)     │      │ Lark CORS proxy  (2 hosts)     │
   │ gemini-pdf-6wp4.onrender.com  │      │ tech/lark-proxy                │
   │ · checks the Lark login         │      │ · adds the app secret at login │
-  │ · converts Office/e-mail → text │      │ · lark-proxy-dwiw.onrender.com │
+  │ · converts Office/e-mail → text │      │ · Cloudflare, Render as backup │
   │ · fixed prompt + JSON schema    │      └───────────────┬────────────────┘
   │ · Flash-Lite, retries, fallback │                      │
   └───────────────┬─────────────────┘                      │
@@ -72,6 +72,12 @@ Lark can use Fetch.
      Google Gemini API (Flash-Lite)              Lark Base "AM BD Universe"
           ③ structured JSON                     table tblG3XcLw2auB4lM
 ```
+
+The Lark proxy runs in two places with the same code and settings: **Cloudflare
+Workers** (`lark-proxy.stephen-lin.workers.dev`, used first; it never sleeps) and
+**Render** (`lark-proxy-dwiw.onrender.com`, the backup). If the one in use can't be
+reached, Fetch moves to the other: reads at once, saves only before they're sent
+(a save is never sent twice). Settings → Connections says when it's on the backup.
 
 0. The user **logs in with Lark** (see [Lark login](#lark-login)). As soon as
    the page opens it **wakes both Render services** (free instances sleep when
@@ -546,7 +552,8 @@ until 1.7.0, but nothing breaks on an older service: the button just doesn't app
 `js/config.js` already points at the deployed services (`SERVICES`):
 
 ```js
-lark:   { url: "https://lark-proxy-dwiw.onrender.com", service: "lark-cors-proxy", min: "", ... },
+lark:   { urls: ["https://lark-proxy.stephen-lin.workers.dev", "https://lark-proxy-dwiw.onrender.com"],
+          service: "lark-cors-proxy", min: "2.0.0", ... },   // tried in order: Cloudflare, then Render (the backup)
 gemini: { url: "https://gemini-pdf-6wp4.onrender.com", service: "gemini-brief-proxy", min: "1.4.0", ... },
 ```
 
@@ -934,7 +941,8 @@ changed and every other row is untouched.
 | "Gemini usage limit reached" | Your key hit its free-tier limit. Wait a bit, or use another key. |
 | "Gemini is overloaded right now. Please try again in a minute." | Temporary Gemini capacity issue. The page retries once on its own ("Retrying automatically in 20s…"); try again in a minute. |
 | A red bar: "**Fetch can't reach its connection service.** An ad blocker or privacy extension is probably blocking it." (or "Your browser is blocking …, probably an ad blocker or privacy extension.") | An ad blocker or privacy extension is blocking the host named in the bar. Allow it (or pause the blocker on this page), then reload. Fetch pings each service's `/`, not `/health`, because filter lists such as uBlock Origin's block `onrender.com/health`. If something else is blocked, the blocker's request log shows the rule. |
-| "Fetch can't reach its connection service (lark-proxy-dwiw.onrender.com). It may still be waking up; try again in a moment." | The Lark proxy is asleep or unreachable. Wait a moment and try again. Settings → Connections shows its state and has **Wake up**. |
+| "Fetch can't reach its connection service (lark-proxy-…). It may still be waking up; try again in a moment." | Neither copy of the Lark proxy answered (Fetch tries Cloudflare, then Render). Wait a moment and try again. Settings → Connections shows its state and has **Wake up**. |
+| Settings > Connections: "… (the backup: the usual one can't be reached)" | The connection service on Cloudflare didn't answer, so Fetch is using the copy on Render. Everything works; the first call after a while may wait for Render to wake up. If it lasts, check the Worker on Cloudflare (its Logs say why). |
 | "Fetch can't reach its extraction service (…). It may still be waking up; try again in a moment." | Same, for the extraction service. If it keeps happening, check the address under Settings → Advanced. |
 | "Waking up the connection… It sleeps when nobody's using it. This can take up to a minute." / "Waking up the extraction service…" | A free Render service is starting (up to a minute after ~15 idle minutes). Normal; the page continues by itself. |
 | Settings → Connections: "Unreachable (no answer for 3 minutes)" | The page tried for 3 minutes. Open the service's address in a browser (it should show JSON with its `service` name), then **Wake up**. For the extraction service check the address under Settings → Advanced. |
