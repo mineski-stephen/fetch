@@ -63,7 +63,7 @@
        jsDelivr for "Check sources" (pdf.js fonts and character maps, Tesseract's engine and language
        data; no login token is ever sent there) and data: (Tesseract's engine is embedded in its script;
        a data: request never leaves the browser). -->
-  <meta http-equiv="Content-Security-Policy" content="connect-src 'self' https://lark-proxy.stephen-lin.workers.dev https://lark-proxy-dwiw.onrender.com https://gemini-pdf-6wp4.onrender.com https://generativelanguage.googleapis.com https://cdn.jsdelivr.net data: http://127.0.0.1:* http://localhost:*; object-src 'none'; base-uri 'self'; form-action 'self'">
+  <meta http-equiv="Content-Security-Policy" content="connect-src 'self' https://lark-proxy.stephen-lin.workers.dev https://lark-proxy-dwiw.onrender.com https://gemini-pdf.stephen-lin.workers.dev https://gemini-pdf-6wp4.onrender.com https://generativelanguage.googleapis.com https://cdn.jsdelivr.net data: http://127.0.0.1:* http://localhost:*; object-src 'none'; base-uri 'self'; form-action 'self'">
   <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Fetch · Mineski</title>
@@ -88,7 +88,7 @@
       var v = window.APP_BUILD = Date.now().toString(36);
       var files = ["js/config.js", "js/icons.js", "js/brief.js", "js/ui.js", "js/cells.js", "js/errors.js", "js/schema.js",
                    "js/tables.js", "js/verify.js", "js/rows.js", "js/ops.js", "js/settings.js", "js/net.js", "js/session.js", "js/auth.js",
-                   "js/extract.js", "js/lark.js", "js/doc.js", "js/pdf.js", "js/match.js", "js/evidence.js", "js/bundle.js",
+                   "js/compress.js", "js/extract.js", "js/lark.js", "js/doc.js", "js/pdf.js", "js/match.js", "js/evidence.js", "js/bundle.js",
                    "js/viewport.js", "js/sources.js", "js/docview.js", "js/settings-view.js", "js/app.js"];
       var map = { imports: {} };
       files.forEach(function (f) { map.imports[new URL(f, location.href).href] = new URL(f + "?v=" + v, location.href).href; });
@@ -233,6 +233,7 @@
         <h2 id="stageLabel" aria-live="polite">Uploading your files…</h2>
         <p class="loader-sub" id="etaLabel">Estimated wait: about 20 seconds</p>
         <ul class="stages" id="steps">
+          <li data-step="squeeze" hidden><span class="slot"></span>Compressing large PDFs <span class="n"></span></li>
           <li data-step="wake" hidden><span class="slot"></span>Waking up the service</li>
           <li data-step="0"><span class="slot"></span>Uploading files <span class="n"></span></li>
           <li data-step="1"><span class="slot"></span>Reading the brief</li>

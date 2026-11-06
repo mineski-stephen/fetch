@@ -1,5 +1,5 @@
 /*
- * Talking to the Gemini proxy (render/gemini-pdf): file preparation, wait-time estimate,
+ * Talking to the extraction service (tech/gemini-pdf): file preparation, wait-time estimate,
  * and the upload itself (XHR, for real upload progress). Waking the service, its status
  * and the compatibility check are in net.js (geminiService).
  */
@@ -115,8 +115,42 @@ class ExtractError extends Error {
   }
 }
 
-/** POST /extract. Returns { promise, abort }. */
-function send(files, text, { onUploadProgress, onUploaded } = {}) {
+/* Failures where this address couldn't do the work at all, so the brief is sent again to the
+   service's other address (Cloudflare first, then Render). An extraction writes nothing, so that's
+   safe. "network" includes Cloudflare's own error page when the Worker runs out of CPU or memory:
+   it has no CORS headers, so the browser only sees a failed request. Never resent: answers about
+   the brief, the login or the key (the other address would say the same). */
+const RESEND = new Set(["network", "gateway", "worker_limit", "misconfigured", "busy"]);
+
+/**
+ * POST /extract, moving to the service's other address if this one can't do the work (RESEND).
+ * Returns { promise, abort }. Hooks: onUploadProgress(fraction), onUploaded(), and
+ * onBackup("waking" | "sending") when it moves to the other address (the upload starts again).
+ */
+function send(files, text, hooks = {}) {
+  let current = null, aborted = false;
+  const promise = (async () => {
+    for (let hop = 0; ; hop++) {
+      const used = geminiService.url();
+      current = sendOnce(files, text, hooks);
+      try {
+        return await current.promise;
+      } catch (err) {
+        if (aborted || !RESEND.has(err.code) || hop >= geminiService.count() - 1) throw err;
+        // threw() may already have moved on (this browser blocks that address); else move now.
+        if (geminiService.url() === used && !geminiService.failover()) throw err;
+        hooks.onBackup?.("waking");
+        if (!await geminiService.wake({ stay: true })) throw err;
+        if (aborted) throw new ExtractError("Cancelled.", "aborted", 0);
+        hooks.onBackup?.("sending");
+      }
+    }
+  })();
+  return { promise, abort: () => { aborted = true; current?.abort(); } };
+}
+
+/** One POST /extract to the address in use. Returns { promise, abort }. */
+function sendOnce(files, text, { onUploadProgress, onUploaded } = {}) {
   const form = new FormData();
   files.forEach((f) => form.append("files", f, f.name));
   if (text) form.append("text", text);
@@ -144,8 +178,10 @@ function send(files, text, { onUploadProgress, onUploaded } = {}) {
       if (xhr.status === 200 && body.brief) return resolve(body);
       const err = body.error || {};
       if (["login_required", "login_expired", "login_invalid"].includes(err.code)) auth.end(err.message);
+      // A 502/503/504 that isn't the service's own JSON came from the host in front of it.
+      const code = err.code || ([502, 503, 504].includes(xhr.status) ? "gateway" : "http");
       reject(new ExtractError(err.message || `The extraction service answered with an error (HTTP ${xhr.status}). Try again in a moment.`,
-        err.code || "http", xhr.status, Number(xhr.getResponseHeader("Retry-After")) || 0));
+        code, xhr.status, Number(xhr.getResponseHeader("Retry-After")) || 0));
     };
     xhr.onerror = () => {
       geminiService.threw(started);

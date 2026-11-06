@@ -10,6 +10,6 @@
     "check:proxy": "node tests/check-proxy.mjs",
     "check:shell": "node tests/check-shell.mjs",
     "check:e2e": "node tests/e2e.mjs",
-    "test:proxy": "cd render/gemini-pdf && python -B -m unittest discover -s tests"
+    "test:proxy": "cd ../tech/gemini-pdf && npm test"
   }
 }

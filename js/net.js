@@ -120,8 +120,9 @@ export function createService({ id, label, urls, def, freshMs }) {
     },
     /** Wake the service: GET / of the address in use, then the others, until one answers, for
      *  about 3 minutes (2 s, backing off to 15 s). Resolves true once one is awake and
-     *  compatible, and keeps using that one. One loop is shared by every caller. */
-    wake({ force = false } = {}) {
+     *  compatible, and keeps using that one. One loop is shared by every caller. `stay` checks
+     *  only the address in use (after a failover, so it doesn't go back to the one that failed). */
+    wake({ force = false, stay = false } = {}) {
       if (!list().length) { set({ state: "unset", detail: "" }); return Promise.resolve(false); }
       if (!force && svc.isFresh()) return Promise.resolve(true);
       if (waking) return waking;
@@ -133,8 +134,9 @@ export function createService({ id, label, urls, def, freshMs }) {
         try {
           for (;;) {
             const l = list();
+            const span = stay ? Math.min(1, l.length) : l.length;
             let outdated = null, retrying = false;
-            for (let step = 0; step < l.length; step++) {
+            for (let step = 0; step < span; step++) {
               const i = (active + step) % l.length;
               if (stopped.has(l[i])) continue;
               const c = await check(l[i]);
@@ -154,7 +156,7 @@ export function createService({ id, label, urls, def, freshMs }) {
               set({ state: "outdated", detail: c.detail, version: c.version, info: c.info, checkedAt: Date.now() });
               return false;
             }
-            if (stopped.size >= l.length) {
+            if (stopped.size >= span) {
               const why = [...stopped.values()];
               const all = why.every((c) => c.state === "blocked");
               const c = all ? { state: "blocked", detail: "blocked by this browser" } : why.find((x) => x.state !== "blocked");
@@ -180,7 +182,7 @@ export function createService({ id, label, urls, def, freshMs }) {
 export const larkService = createService({ id: "lark", label: "Connection service", def: SERVICES.lark, freshMs: 60000,
   urls: () => cfg().larkUrls });
 export const geminiService = createService({ id: "gemini", label: "Extraction service", def: SERVICES.gemini, freshMs: 4 * 60000,
-  urls: () => [cfg().geminiUrl] });
+  urls: () => cfg().geminiUrls });
 export const services = [larkService, geminiService];
 
 /** Subscribe to every service's status changes. */

@@ -15,6 +15,7 @@
 import * as B from "./brief.js";
 import * as auth from "./auth.js";
 import * as extract from "./extract.js";
+import * as squeeze from "./compress.js";
 import * as lark from "./lark.js";
 import * as paper from "./doc.js";   // not "doc": that name is used for the open brief below
 import * as E from "./evidence.js";
@@ -259,7 +260,7 @@ function updateWriteNote() {
 
 /** Why extraction can't run right now ("" if it can). */
 function setupProblem() {
-  if (!cfg().geminiUrl) return "The extraction service isn't connected. Add its address in Settings.";
+  if (!cfg().geminiUrls.length) return "The extraction service isn't connected. Add its address in Settings.";
   if (geminiService.status.state === "outdated") return "The extraction service is out of date. Ask the admin to redeploy it.";
   if (geminiService.status.state === "awake" && geminiService.status.info.configured === false && !geminiKey()) {
     return "Add your Gemini API key in Settings to start extracting briefs.";
@@ -271,7 +272,7 @@ function updateSetupNote() {
   const problem = setupProblem();
   $("#setupNote").hidden = !problem;
   if (problem) {
-    $("#setupText").textContent = !cfg().geminiUrl ? "connect the extraction service."
+    $("#setupText").textContent = !cfg().geminiUrls.length ? "connect the extraction service."
       : geminiService.status.state === "outdated" ? "the extraction service is out of date. Ask the admin to redeploy it."
         : "add your Gemini API key to start extracting briefs.";
   }
@@ -310,7 +311,7 @@ function renderFiles() {
   list.replaceChildren(...S.items.map((it) => h("li", { class: `file kind-${it.kind}`, "data-id": it.id },
     it.thumb ? h("img", { class: "file-thumb", src: it.thumb, alt: "" }) : h("span", { class: "file-badge" }, KIND_LABEL[it.kind]),
     h("span", { class: "file-info" }, h("span", { class: "file-name", title: it.file.name }, it.file.name),
-      h("span", { class: "file-size" }, fmtBytes(it.file.size))),
+      h("span", { class: "file-size" }, fmtBytes(it.file.size) + (squeeze.willCompress(it.file) ? " · compressed before sending" : ""))),
     h("button", { type: "button", class: "file-x", "aria-label": `Remove ${it.file.name}`, "data-remove": it.id }, ic("x")))));
   updateCompose();
 }
@@ -318,12 +319,19 @@ function renderFiles() {
 function addFiles(fileList, { pasted = false } = {}) {
   const { maxUploadMb, maxFiles } = extract.limits();   // what the extraction service reports, else the config's
   const maxBytes = maxUploadMb * 1048576;
+  // A PDF that will be compressed before sending counts as its expected size; the real total is
+  // checked again after compressing (startExtraction).
+  const counted = (f) => (squeeze.willCompress(f) ? Math.min(f.size, RULES.compressPdfOverMb * 1048576) : f.size);
   let skipped = 0;
   for (let file of fileList) {
     if (!file || !file.size) continue;
     if (S.items.length >= maxFiles) { toast(`You can add up to ${maxFiles} files per brief.`, { type: "error" }); break; }
     if (S.items.some((it) => it.file.name === file.name && it.file.size === file.size && it.file.lastModified === file.lastModified)) { skipped++; continue; }
-    const total = S.items.reduce((s, it) => s + it.file.size, 0) + file.size;
+    if (squeeze.willCompress(file) && file.size > RULES.maxPdfMb * 1048576) {
+      toast(`“${file.name}” is over ${RULES.maxPdfMb} MB, too big to compress in the browser. Make it smaller first, then add it.`, { type: "error" });
+      continue;
+    }
+    const total = S.items.reduce((s, it) => s + counted(it.file), 0) + counted(file);
     if (total > maxBytes) { toast(`That would be over ${maxUploadMb} MB in total. Try compressing the file first.`, { type: "error" }); break; }
     if (pasted && /^image\.(png|jpe?g|gif|webp)$/i.test(file.name)) {
       const t = new Date();
@@ -461,13 +469,13 @@ function wireCompose() {
 const RING = 2 * Math.PI * 52;
 const STAGES = ["Uploading your files…", "Reading the brief…", "Extracting key details…", "Formatting the summary…"];
 
-const STEP_ORDER = ["wake", 0, 1, 2, 3];
+const STEP_ORDER = ["squeeze", "wake", 0, 1, 2, 3];
 
-/** Mark step `i` ("wake" or 0–3) as current; earlier steps done. */
+/** Mark step `i` ("squeeze", "wake" or 0–3) as current; earlier steps done. */
 function setStep(i, done = false) {
   const at = STEP_ORDER.indexOf(i);
   $$("#steps li").forEach((li) => {
-    const n = STEP_ORDER.indexOf(li.dataset.step === "wake" ? "wake" : Number(li.dataset.step));
+    const n = STEP_ORDER.indexOf(/^\d+$/.test(li.dataset.step) ? Number(li.dataset.step) : li.dataset.step);
     const state = done || n < at ? "done" : n === at ? "current" : "";
     if (li.className === state && li.firstElementChild.matches({ done: ".i", current: ".spinner" }[state] || ".slot")) return;   // unchanged
     li.className = state;
@@ -488,6 +496,8 @@ function resetLoader() {
   $("#loaderError").hidden = true;
   $("#errSettingsBtn").hidden = true;
   $('#steps [data-step="wake"]').hidden = true;
+  $('#steps [data-step="squeeze"]').hidden = true;
+  $('#steps [data-step="squeeze"] .n').textContent = "";
   $("#retryBtn").textContent = "Try again";
   $("#cancelBtn").hidden = false;
   $("#ringFill").style.strokeDasharray = String(RING);
@@ -502,13 +512,31 @@ function resetLoader() {
 
 function tickWake() {
   setStep("wake");
+  if (S.job?.backup) {
+    $("#stageLabel").textContent = "Switching to the backup extraction service…";
+    $("#etaLabel").textContent = "The usual one couldn't take this brief, so Fetch is sending it to the backup. It may need a moment to wake up.";
+    return;
+  }
   $("#stageLabel").textContent = "Waking up the extraction service…";
   $("#etaLabel").textContent = "It sleeps when nobody's used it for a while, so the first brief takes a little longer.";
+}
+
+function tickSqueeze() {
+  const q = S.job.squeeze;
+  setStep("squeeze");
+  $('#steps [data-step="squeeze"] .n').textContent = q && q.count > 1 ? `${q.n + 1} of ${q.count}` : "";
+  $("#stageLabel").textContent = q ? `Compressing “${q.name}”…` : "Compressing large PDFs…";
+  $("#etaLabel").textContent = q && q.stage === "images" && q.total
+    ? `Photos ${q.done} of ${q.total}. Large PDFs are made smaller on this computer first, so they upload faster.`
+    : "Large PDFs are made smaller on this computer first, so they upload faster. Photos keep their look.";
+  $("#etaNumber").textContent = "…";
+  $("#etaUnit").textContent = "";
 }
 
 function tick() {
   const job = S.job;
   if (job?.phase === "wake") return tickWake();
+  if (job?.phase === "squeeze") return tickSqueeze();
   if (!job || !job.est) return;
   const now = performance.now();
   const t = (now - job.t0) / 1000;
@@ -583,6 +611,31 @@ async function startExtraction() {
   }
   if (S.job !== job) return;   // cancelled while preparing
 
+  // Large PDFs are made smaller on this computer first (js/compress.js); the service wakes meanwhile.
+  if (files.some(squeeze.willCompress)) {
+    if (!geminiService.isFresh()) geminiService.wake();
+    job.phase = "squeeze";
+    $('#steps [data-step="squeeze"]').hidden = false;
+    job.timer = setInterval(tick, 250);
+    tick();
+    const run = squeeze.compressAll(files, {
+      onFile: (n, count, file) => { job.squeeze = { n, count, name: file.name, stage: "", done: 0, total: 0 }; },
+      onProgress: (p) => { if (job.squeeze) Object.assign(job.squeeze, { stage: p.stage, done: p.done || 0, total: p.total || 0 }); },
+    });
+    job.abort = run.cancel;
+    const out = await run.promise;
+    clearInterval(job.timer);
+    if (S.job !== job) return;   // cancelled while compressing
+    files = out.files;
+    job.saved = out.saved;
+    job.phase = null;
+  }
+  const { maxUploadMb } = extract.limits();
+  if (files.reduce((n, f) => n + f.size, 0) > maxUploadMb * 1048576) {
+    S.job = null;
+    return showLoaderError({ code: "too_large", message: `That's over ${maxUploadMb} MB in total, even after compressing the large PDFs. Remove a file, then try again.` });
+  }
+
   // The free Render instance sleeps when idle. If it doesn't answer at once,
   // show a "waking up" phase and wait for it before uploading anything.
   if (!geminiService.isFresh()) {
@@ -628,6 +681,17 @@ async function startExtraction() {
   const req = extract.send(files, text, {
     onUploadProgress: (f) => { job.upload = f; },
     onUploaded: () => { job.uploadedAt = performance.now(); },
+    // The usual service couldn't take it: it goes to the backup, and the upload starts again.
+    onBackup: (stage) => {
+      if (stage === "waking") {
+        Object.assign(job, { phase: "wake", backup: true });
+        $("#loader").classList.add("is-waking");
+        $('#steps [data-step="wake"]').hidden = false;
+      } else {
+        $("#loader").classList.remove("is-waking");
+        Object.assign(job, { phase: "work", t0: performance.now(), upload: 0, uploadedAt: 0 });
+      }
+    },
   });
   job.abort = req.abort;
 
@@ -660,7 +724,9 @@ async function startExtraction() {
     await new Promise((r) => setTimeout(r, reduceMotion() ? 0 : 550));
     if (S.view === "processing") {
       go("#/result");
-      toast(`Brief extracted in ${secs}s. Review it, then save it to Lark.`, { type: "success" });
+      const smaller = (job.saved || []).reduce((n, s) => n + s.before - s.after, 0);
+      toast(`Brief extracted in ${secs}s. Review it, then save it to Lark.`, { type: "success",
+        detail: smaller ? `Large PDFs were compressed first (${fmtBytes(smaller)} smaller), and they're saved that way too.` : "" });
     } else {
       toast("Your brief is ready.", { type: "success", action: "View", onAction: () => go("#/result"), timeout: 0 });
     }

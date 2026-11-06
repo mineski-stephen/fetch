@@ -15,7 +15,7 @@
  */
 /* version: bump it with every release and add an entry to CHANGELOG.md (newest first, same number).
    The top bar shows it beside the name, so people can see at a glance which version they're running. */
-export const APP = { name: "Fetch", key: "fetch", version: "1.5.0", env: "live",   // env: "live" | "test"
+export const APP = { name: "Fetch", key: "fetch", version: "1.6.0", env: "live",   // env: "live" | "test"
   // Where the page is hosted. Sharing links (and the "Fetch URL" column) always point here, even
   // when they're made from a local copy, so a link in Lark works for everyone.
   url: "https://mineski-stephen.github.io/fetch/" };
@@ -26,8 +26,11 @@ export const SERVICES = {   // hosted defaults; `min` and `headers` are checked 
   // (never sleeps), then Render (the backup). Both must be in index.html's connect-src.
   lark: { urls: ["https://lark-proxy.stephen-lin.workers.dev", "https://lark-proxy-dwiw.onrender.com"],
           service: "lark-cors-proxy", min: "2.0.0", headers: ["Authorization"] },
-  gemini: { url: "https://gemini-pdf-6wp4.onrender.com", service: "gemini-brief-proxy", min: "1.4.0",
-            headers: ["Authorization", "X-Gemini-Api-Key"] },
+  // The extraction service (tech/gemini-pdf) runs in the same two places, in the same order. A brief
+  // the Worker can't finish (too big for Cloudflare's free plan) is sent again to Render by itself:
+  // an extraction writes nothing, so sending it twice is safe. Both must be in connect-src too.
+  gemini: { urls: ["https://gemini-pdf.stephen-lin.workers.dev", "https://gemini-pdf-6wp4.onrender.com"],
+            service: "gemini-brief-proxy", min: "1.4.0", headers: ["Authorization", "X-Gemini-Api-Key"] },
 };
 
 // Same Lark app as Polaris; the Lark proxy holds its secret. Every address Fetch is
@@ -74,6 +77,13 @@ export const RULES = {
   // the service's GET / once it answers (render/gemini-pdf MAX_UPLOAD_MB / MAX_FILES).
   maxUploadMb: 50,
   maxFiles: 10,
+
+  // PDFs bigger than this are made smaller on this computer before they're sent (js/compress.js,
+  // Squeeze's engine: photos to JPEG 65 at 144 PPI, like Sejda). They count as this size when
+  // adding files; the real total is checked again after compressing.
+  compressPdfOverMb: 5,
+  // The largest PDF Fetch will try to compress (browser memory). Bigger ones are refused.
+  maxPdfMb: 300,
 };
 
 /** The table links in force for this environment ("" for a test copy that isn't set up yet). */

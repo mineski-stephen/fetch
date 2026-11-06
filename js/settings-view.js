@@ -114,7 +114,7 @@ export function createSettingsView(ctx) {
     const s = settings.get();
     const d = settings.defaults;
     $("#setGeminiUrl").value = s.geminiUrl || "";
-    $("#setGeminiUrl").placeholder = d.geminiUrl || "https://…onrender.com";
+    $("#setGeminiUrl").placeholder = d.geminiUrls[0] || "https://…workers.dev";
     $("#setLarkUrl").value = s.larkUrl || "";
     $("#setLarkUrl").placeholder = d.larkUrls[0];
     $("#setLarkTable").value = s.larkTable || "";

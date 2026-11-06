@@ -2,6 +2,7 @@
 
    - index.html's import map lists every js/*.js (a missing one fails only on the live site)
    - js/ui.js, js/icons.js and css/mineski-base.css are byte-identical to the design skill's copies
+   - squeeze/ (the PDF compressor) is byte-identical to tech/pdf-compress
    - the boot watchdog is there, and app.js stands it down
    - every module passes `node --check`
    - no secret-shaped strings, and no old "bx." storage keys outside the head's migration script */
@@ -46,6 +47,16 @@ const systems = ["../design-ref/mineski-systems-design/assets", ".claude/skills/
 if (!systems) console.log("  - the systems design isn't next to this folder; js/session.js not compared");
 else if (md5(root + "js/session.js") === md5(`${systems}/session.js`)) ok("js/session.js matches the systems design");
 else fail("js/session.js differs from the systems design's assets/session.js. Fix it there first, then copy it back unedited.");
+
+// The PDF compressor (js/compress.js) runs Squeeze's engine, copied unedited from tech/pdf-compress.
+const squeezeHome = root + "../tech/pdf-compress/";
+for (const [mine, theirs] of [["squeeze/js/engine.js", "js/engine.js"], ["squeeze/js/worker.js", "js/worker.js"],
+  ["squeeze/vendor/pdf-lib/pdf-lib.esm.min.js", "vendor/pdf-lib/pdf-lib.esm.min.js"]]) {
+  if (!existsSync(root + mine)) fail(`${mine} is missing (copy it from tech/pdf-compress)`);
+  else if (!existsSync(squeezeHome + theirs)) console.log(`  - tech/pdf-compress isn't next to this folder; ${mine} not compared`);
+  else if (md5(root + mine) === md5(squeezeHome + theirs)) ok(`${mine} matches Squeeze`);
+  else fail(`${mine} differs from tech/pdf-compress/${theirs}. Change it there first, then copy it back unedited.`);
+}
 
 begin("Boot watchdog");
 if (/data-booted/.test(html) && /couldn\\?'t start/.test(html)) ok("index.html has it");

@@ -60,11 +60,11 @@ Lark can use Fetch.
           /extract + login  │                           │    (as the signed-in user)
                             ▼                           ▼
   ┌─────────────────────────────────┐      ┌────────────────────────────────┐
-  │ render/gemini-pdf  (Render)     │      │ Lark CORS proxy  (2 hosts)     │
-  │ gemini-pdf-6wp4.onrender.com  │      │ tech/lark-proxy                │
+  │ Extraction service  (2 hosts)   │      │ Lark CORS proxy  (2 hosts)     │
+  │ tech/gemini-pdf                 │      │ tech/lark-proxy                │
   │ · checks the Lark login         │      │ · adds the app secret at login │
   │ · converts Office/e-mail → text │      │ · Cloudflare, Render as backup │
-  │ · fixed prompt + JSON schema    │      └───────────────┬────────────────┘
+  │ · Cloudflare, Render as backup  │      └───────────────┬────────────────┘
   │ · Flash-Lite, retries, fallback │                      │
   └───────────────┬─────────────────┘                      │
                   │ ② generateContent                      │ ⑥ Bitable API
@@ -79,8 +79,27 @@ Workers** (`lark-proxy.stephen-lin.workers.dev`, used first; it never sleeps) an
 reached, Fetch moves to the other: reads at once, saves only before they're sent
 (a save is never sent twice). Settings → Connections says when it's on the backup.
 
+The extraction service (`tech/gemini-pdf`) runs the same way: **Cloudflare**
+(`gemini-pdf.stephen-lin.workers.dev`, first) and **Render**
+(`gemini-pdf-6wp4.onrender.com`, the backup). Cloudflare's free plan gives each
+request very little CPU, so a brief it can't finish (very large, or many files)
+is **sent again to Render** by itself, with "Switching to the backup extraction
+service…" on the loader. An extraction writes nothing, so sending it twice is
+safe; answers about the brief, the login or the key are never resent.
+
+**Large PDFs are compressed first.** PDFs over 5 MB (`RULES.compressPdfOverMb`)
+are made smaller on the user's computer before anything is uploaded
+(`js/compress.js`, running Squeeze's engine from `squeeze/`, copied unedited from
+`tech/pdf-compress`): photos are re-encoded like Sejda's Compress (JPEG 65, 144 PPI),
+text and pages are untouched. A 37 MB sales kit becomes about 3.5 MB in a second
+or two, so it uploads fast, fits the 50 MB limit (such PDFs count as 5 MB when
+added; the real total is checked after compressing) and Lark's 10 MB attachment
+limit, and costs the extraction service nothing. A PDF that isn't at least 10%
+smaller, can't be read, or takes over 2 minutes is sent as it was. The smaller
+copy is what's sent, attached in Lark and shown in "Check sources".
+
 0. The user **logs in with Lark** (see [Lark login](#lark-login)). As soon as
-   the page opens it **wakes both Render services** (free instances sleep when
+   the page opens it **wakes both services** (free Render instances sleep when
    idle; the Settings screen shows each one's state), and once logged in it
    **loads the briefs list** from Lark in the background: every row, never
    through a view, and it checks the table's columns first. A list it can't read
@@ -244,8 +263,7 @@ project-brief/                     ← the repository root = the website root
 ├── project-brief-template.md      The summary template the document follows
 ├── package.json                   No dependencies: just the script names (`npm run serve`, `npm test`, `npm run check:shell`...)
 ├── .gitignore                     Keeps tools/.env (the Lark app secret) out of the repository
-├── render/
-│   └── gemini-pdf/                The Gemini proxy (Render web service) — see its README
+├── squeeze/                       The PDF compressor's engine (js/) and pdf-lib (vendor/), copied unedited from tech/pdf-compress
 ├── tests/
 │   ├── *.test.mjs                 Offline tests of the pure modules (incl. match.js, evidence.js) and of ops.js against a fake Lark (`npm test`)
 │   ├── fake-lark.mjs              An in-memory stand-in for the Lark endpoints Fetch uses
@@ -287,7 +305,7 @@ the Lark row:
 | *(added)* TL;DR | `summary` | Under the title; first lines of the chat text | **Summary** |
 | *(added)* Source problems | `extraction_warnings[]` | Yellow banner above the document (not printed) | — |
 
-Rules the model follows (see `render/gemini-pdf/prompt.md`):
+Rules the model follows (see `../tech/gemini-pdf/prompt.md`):
 
 - **Never invent.** Anything missing is exactly `Not specified` (shown greyed
   and italic) and usually generates a question in *To clarify with the client*.
@@ -348,11 +366,11 @@ it, where in a long brief that point came from, so it can be checked against the
 original in seconds.
 
 **Where the passages come from.** In the same Gemini call that writes the
-summary, the prompt (`render/gemini-pdf/prompt.md`, *# Evidence*) asks for every
+summary, the prompt (`../tech/gemini-pdf/prompt.md`, *# Evidence*) asks for every
 value and bullet (notes included; not the TL;DR or the questions for the client)
 with the 1-3 passages of the sources it was based on, copied word for word, with
 the file number and PDF page. The service validates them (`normalize_evidence` in
-`brief_spec.py`: known fields, real files, list items re-pointed after duplicates
+`src/brief-spec.js`: known fields, real files, list items re-pointed after duplicates
 are dropped, at most 80 fields and 3 passages each) and returns them as
 `evidence` beside the brief, with `texts` (what it converted from Office files,
 e-mails and other text). If Gemini refuses to quote (its recitation filter), the
@@ -520,12 +538,13 @@ from Lark. It needs Node 18+ to read the column list from `js/schema.js`.
 
 ## Deploying
 
-### 1. Deploy the Gemini proxy (Render)
+### 1. Deploy the extraction service (Cloudflare and Render)
 
-Already deployed at **https://gemini-pdf-6wp4.onrender.com**. To set it up
-from scratch, follow [`render/gemini-pdf/README.md`](render/gemini-pdf/README.md#deploying-to-render):
-Render → **New → Web Service** → Docker, root `render/gemini-pdf`, health check
-`/health`.
+Deployed at **https://gemini-pdf.stephen-lin.workers.dev** (Cloudflare, used
+first) and **https://gemini-pdf-6wp4.onrender.com** (Render, the backup), from
+`tech/gemini-pdf`. To set either up from scratch, follow
+[its README](../tech/gemini-pdf/README.md#deploying). Give both hosts the same
+settings.
 
 - `GEMINI_API_KEY` is the **shared key** everyone uses by default. Users only
   need their own key (Settings) if no shared key is set, or if they prefer
@@ -539,8 +558,8 @@ Render → **New → Web Service** → Docker, root `render/gemini-pdf`, health 
   similarly named variables, which helps spot a typo.
 - `GEMINI_MODEL` should be `auto` (or unset), which uses the newest Flash-Lite model.
 
-**After updating the proxy's code** (it is at version 1.7.0), follow the deploy
-checklist in [`render/gemini-pdf/README.md`](render/gemini-pdf/README.md#deploying-to-render):
+**After updating the service's code** (it is at version 2.0.0), follow the deploy
+checklist in [its README](../tech/gemini-pdf/README.md#deploy-checklist):
 proxy first, page second. In particular, set `LARK_BASE_TOKEN` and `LARK_TABLE_ID`
 on the service before deploying 1.5.0 or later, or it won't start. When it is live, run
 `npm run check:proxy`; after that `SERVICES.gemini.min` in `js/config.js` can be
@@ -554,7 +573,8 @@ until 1.7.0, but nothing breaks on an older service: the button just doesn't app
 ```js
 lark:   { urls: ["https://lark-proxy.stephen-lin.workers.dev", "https://lark-proxy-dwiw.onrender.com"],
           service: "lark-cors-proxy", min: "2.0.0", ... },   // tried in order: Cloudflare, then Render (the backup)
-gemini: { url: "https://gemini-pdf-6wp4.onrender.com", service: "gemini-brief-proxy", min: "1.4.0", ... },
+gemini: { urls: ["https://gemini-pdf.stephen-lin.workers.dev", "https://gemini-pdf-6wp4.onrender.com"],
+          service: "gemini-brief-proxy", min: "1.4.0", ... },   // the same order
 ```
 
 These are the same for everyone. **Settings → Advanced** (local copies only,
@@ -699,12 +719,12 @@ loader, link straight to the key field (`#/settings/key`).
 ## Local development
 
 ```bash
-# 1. Gemini proxy on :8000 (needs a key; the Lark ids are required unless login is off)
-cd render/gemini-pdf
-REQUIRE_LARK_LOGIN=false GEMINI_API_KEY=your-key python gemini_proxy.py
+# 1. Extraction service on :8000 (Node 22; needs a key; the Lark ids are required unless login is off)
+cd ../tech/gemini-pdf
+REQUIRE_LARK_LOGIN=false GEMINI_API_KEY=your-key node server.js
 
 # 2. Static page on 127.0.0.1:9124 (Fetch's port)
-cd ../..
+cd ../../fetch
 npm run serve                      # = python tools/serve.py 9124, with caching disabled
 ```
 
@@ -777,7 +797,7 @@ changed and every other row is untouched.
   model. It's also 3–10× faster than Flash (~5 s per brief).
 - **Bring your own key.** The proxy can run without a shared key; each user's
   key travels with their request and is never stored server-side.
-- **Ready before you are.** On page load Fetch wakes both Render services and
+- **Ready before you are.** On page load Fetch wakes both services and
   prefetches the briefs list, so *All briefs* is populated instantly. Reads are
   retried while a service wakes (about 3 minutes); writes never are.
 - **Resilient to Gemini outages.** Retry, model fallback, a cooldown for
@@ -934,7 +954,7 @@ changed and every other row is untouched.
 | Check sources on a filed brief: "isn't attached to this brief in Lark any more" | The file was removed from *Attachments* since. **Add a copy** shows it from your computer (in this tab only). |
 | Brief files: "Add “file” again" | The page was reloaded since the extraction, so the file isn't in memory any more. Add the same file (same name) and it opens. |
 | The source viewer moves or zooms instead of scrolling the panel | That's the viewer: the wheel zooms and dragging moves the page. Scroll the panel with the wheel outside the grey viewer, or with its scroll bar. |
-| Check sources shows only one passage per value | The extraction service is 1.6.0. Deploy 1.7.0 (`render/gemini-pdf`) for several passages per value, and for notes. |
+| Check sources shows only one passage per value | The extraction service is 1.6.0. Deploy 1.7.0 or newer (`tech/gemini-pdf`) for several passages per value, and for notes. |
 | Check sources: "Couldn't load the document viewer" | The page couldn't reach `cdn.jsdelivr.net` (offline, or a blocker). Allow it and click the field again; the quote itself always shows. |
 | Check sources: "Couldn't pinpoint this passage in the document" | Gemini's quote isn't word-for-word in the file (or is in an image inside a Word file or e-mail). Read the quote and check that part of the brief yourself. |
 | "Your Gemini key needs attention" | Google rejected your key. Re-copy it from Google AI Studio into Settings and click **Test key**. |
@@ -942,11 +962,14 @@ changed and every other row is untouched.
 | "Gemini is overloaded right now. Please try again in a minute." | Temporary Gemini capacity issue. The page retries once on its own ("Retrying automatically in 20s…"); try again in a minute. |
 | A red bar: "**Fetch can't reach its connection service.** An ad blocker or privacy extension is probably blocking it." (or "Your browser is blocking …, probably an ad blocker or privacy extension.") | An ad blocker or privacy extension is blocking the host named in the bar. Allow it (or pause the blocker on this page), then reload. Fetch pings each service's `/`, not `/health`, because filter lists such as uBlock Origin's block `onrender.com/health`. If something else is blocked, the blocker's request log shows the rule. |
 | "Fetch can't reach its connection service (lark-proxy-…). It may still be waking up; try again in a moment." | Neither copy of the Lark proxy answered (Fetch tries Cloudflare, then Render). Wait a moment and try again. Settings → Connections shows its state and has **Wake up**. |
+| Loader: "Switching to the backup extraction service…" | The extraction service on Cloudflare couldn't take this brief (too much work for its free plan, or it didn't answer), so Fetch is sending it to Render. It may wait for Render to wake up. Nothing to do. |
+| File list: "… · compressed before sending" | That PDF is over 5 MB, so it's made smaller on this computer first. The loader shows "Compressing large PDFs". |
+| "That's over 50 MB in total, even after compressing the large PDFs." | The PDFs didn't shrink enough (often they're mostly text or vector art). Remove a file, or split the PDF. |
 | Settings > Connections: "… (the backup: the usual one can't be reached)" | The connection service on Cloudflare didn't answer, so Fetch is using the copy on Render. Everything works; the first call after a while may wait for Render to wake up. If it lasts, check the Worker on Cloudflare (its Logs say why). |
 | "Fetch can't reach its extraction service (…). It may still be waking up; try again in a moment." | Same, for the extraction service. If it keeps happening, check the address under Settings → Advanced. |
 | "Waking up the connection… It sleeps when nobody's using it. This can take up to a minute." / "Waking up the extraction service…" | A free Render service is starting (up to a minute after ~15 idle minutes). Normal; the page continues by itself. |
 | Settings → Connections: "Unreachable (no answer for 3 minutes)" | The page tried for 3 minutes. Open the service's address in a browser (it should show JSON with its `service` name), then **Wake up**. For the extraction service check the address under Settings → Advanced. |
-| Settings → Connections: "Out of date (v1.3.0, needs 1.4.0). Ask the admin to redeploy it." | The service is older than this page needs, or its CORS rules lack a header the page sends. Redeploy it on Render ([deploy checklist](render/gemini-pdf/README.md#deploying-to-render)); extraction is off until then. |
+| Settings → Connections: "Out of date (v1.3.0, needs 1.4.0). Ask the admin to redeploy it." | The service is older than this page needs, or its CORS rules lack a header the page sends. Redeploy it on Render ([deploy checklist](../tech/gemini-pdf/README.md#deploy-checklist)); extraction is off until then. |
 | "A user key fails with a network error right after an update" (or "Out of date" above) | The extraction service still runs an old version. Redeploy it on Render. |
 | "Setup needed" even though a shared key is set on Render | The service doesn't see the key. Check `shared_key` at the service's root URL, then save the variable with **Save, rebuild, and deploy**. |
 | A red **Override** badge in the top bar | A test address or table is active (Settings → Advanced, or a `?gemini=` / `?lark=` link). Hover for what. Clear it in Settings, or open the page with `?reset`. |
@@ -997,14 +1020,14 @@ saying what changed in the team's words, and run `npm run check:shell` (it fails
 differ). The top bar shows the version beside the name, so people can check at a glance that they have the
 latest one; if they don't, they reload the page.
 
-**Tune the wording or rules**: edit `render/gemini-pdf/prompt.md` and redeploy
+**Tune the wording or rules**: edit `../tech/gemini-pdf/prompt.md` and redeploy
 the proxy. No page changes needed. The *# Evidence* section there decides what
-*Check sources* gets; `MAX_EVIDENCE` and `MAX_PASSAGES` in `brief_spec.py` cap it
+*Check sources* gets; `MAX_EVIDENCE` and `MAX_PASSAGES` in `src/brief-spec.js` cap it
 (fewer passages make extractions faster).
 
 **Add a field** (e.g. "Competitors"):
 
-1. `render/gemini-pdf/brief_spec.py`: add it to `RESPONSE_SCHEMA` and
+1. `../tech/gemini-pdf/src/brief-spec.js`: add it to `RESPONSE_SCHEMA` and
    `normalize()`; describe it in `prompt.md`.
 2. `js/brief.js`: add it to `normalize()`, `toMarkdown()` and the chat text.
 3. `js/doc.js`: render it (use `ed()` for text or `listBlock()` for a list).
@@ -1013,7 +1036,7 @@ the proxy. No page changes needed. The *# Evidence* section there decides what
    and `fromRecord()`); `npm test` shows what moved. Run `python tools/setup_lark_table.py --apply`
    to create the column (it reads the list from `schema.js`).
 6. For *Check sources*: add its path to `EVIDENCE_SCALARS` or `EVIDENCE_LISTS` in
-   `brief_spec.py` and to the field list under *# Evidence* in `prompt.md`, and a
+   `src/brief-spec.js` and to the field list under *# Evidence* in `prompt.md`, and a
    label to `LABELS` in `js/sources.js` (lists also go in `LISTS` in `js/evidence.js`
    and `EV_LISTS` in `js/app.js`).
 

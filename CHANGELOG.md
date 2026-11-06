@@ -9,6 +9,24 @@ or links stop working), add an entry here with the same number and the date,
 and say what changed in the team's words. `npm run check:shell` fails if the
 two numbers differ.
 
+## 1.6.0 · Nov 6, 2026
+
+- **Large PDFs are compressed before they're sent.** PDFs over 5 MB are made
+  smaller on your computer first (the same engine as Squeeze: photos re-encoded
+  like Sejda's Compress, so they look the same; text and pages unchanged). A
+  40 MB sales kit usually becomes 3-5 MB, so it uploads in seconds, and PDFs that
+  used to be over the 50 MB limit now fit. The loader shows "Compressing large
+  PDFs" while it works, and the file list says which files will be compressed.
+  The smaller copy is also what's attached to the brief in Lark (under its
+  10 MB limit). A PDF that doesn't get at least 10% smaller is sent as it was.
+- **A backup extraction service.** The extraction service now runs in two
+  places too: Cloudflare (used first, never sleeps) and Render (the backup). If
+  Cloudflare can't be reached, or can't finish a brief (very large or many files),
+  Fetch sends the brief to Render by itself and says "Switching to the backup
+  extraction service…". Settings > Connections says when it's using the backup.
+- Needs the extraction service's address list in `SERVICES.gemini.urls`; an
+  override in Settings or `?gemini=` replaces the list with one address.
+
 ## 1.5.0 · Nov 6, 2026
 
 - **A backup connection service.** The Lark connection service now runs in two
